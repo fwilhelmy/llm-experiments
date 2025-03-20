@@ -52,15 +52,26 @@ class LSTMCell(nn.Module):
             c_t (torch.Tensor): New cell state (batch_size, hidden_size).
         """
         h, c = hx  # (batch_size, hidden_size), (batch_size, hidden_size)
-        
+
         # Concatenate input and previous hidden state along the feature dimension
         combined = torch.cat([x, h], dim=1)  # (batch_size, input_size + hidden_size)
+        
+        # Forget Gate
+        forget = torch.sigmoid(self.forget_gate(combined))
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
+        # Input Gate
+        input = torch.sigmoid(self.input_gate(combined))
 
-        raise NotImplementedError
+        # Candidate Gate
+        candidate = torch.tanh(self.candidate_cell(combined))
+
+        # Output Gate
+        output = torch.sigmoid(self.output_gate(combined))
+
+        c_t = c * forget + input * candidate
+        h_t = output * torch.tanh(c_t)
+
+        return h_t, c_t
 
 ########################################################################################
 ########################################################################################
@@ -111,18 +122,13 @@ class LSTM(nn.Module):
             h_n (torch.Tensor): Final hidden states (num_layers, batch_size, hidden_size).
             c_n (torch.Tensor): Final cell states (num_layers, batch_size, hidden_size).
         """
-        raise NotImplementedError
 
         batch_size, seq_len, _ = x.size() 
         
         # Initialize hidden and cell states if not provided.
-        if hx is None:
-            # ==========================
-            # TODO: Write your code here
-            # ==========================
-            raise NotImplementedError
-        else:
-            h0, c0 = hx  # (num_layers, batch_size, hidden_size), (num_layers, batch_size, hidden_size)
+        h0, c0 = hx if hx is not None else (
+            torch.zeros(self.num_layers, batch_size, self.hidden_size, device=x.device, dtype=x.dtype),
+            torch.zeros(self.num_layers, batch_size, self.hidden_size, device=x.device, dtype=x.dtype))
 
         output = x  # (batch_size, seq_len, hidden_size) for layer 0 input
         final_hidden_states = []
@@ -136,14 +142,9 @@ class LSTM(nn.Module):
             
             # Iterate over the time steps
             for t in range(seq_len):
-                # ==========================
-                # TODO: Write your code here
-                # ==========================
                 # Extract x_t from "output" tensor, and compute h_t, c_t using the LSTM "cell" based on x_t, h_t, and c_t
-
-                x_t = None  # (batch_size, input_size) if layer_idx == 0, (batch_size, hidden_size) otherwise
-                h_t, c_t = None, None  # (batch_size, hidden_size), (batch_size, hidden_size)
-
+                x_t = output[:, t, :] # (batch_size, input_size) if layer_idx == 0, (hidden_size, hidden_size) otherwise
+                h_t, c_t = cell(x_t, (h_t, c_t))  # (batch_size, hidden_size), (batch_size, hidden_size)
                 layer_outputs.append(h_t.unsqueeze(1))  # (batch_size, 1, hidden_size)
             
             # Concatenate time outputs: (batch_size, seq_len, hidden_size)
@@ -227,11 +228,11 @@ class LSTMLM(nn.Module):
             - c (`torch.FloatTensor` of shape `(num_layers, batch_size, hidden_size)`)
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
+        embeddings = self.embedding(x)  # (batch_size, sequence_length, embedding_size)
+        outputs, hidden_states = self.lstm(embeddings, hidden_states)  # (batch_size, sequence_length, hidden_size)
+        logits = self.classifier(outputs)  # (batch_size, sequence_length, vocabulary_size)
 
-        raise NotImplementedError
+        return logits, hidden_states
 
 ########################################################################################
 ########################################################################################

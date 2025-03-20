@@ -49,11 +49,31 @@ def get_loss_and_accuracy(logits, targets, eq_positions, mask, reduction='mean')
         The accuracy over the batch where a sequence is counted as correct only if 
         all valid RHS tokens are predicted correctly.
     """
-    # ==========================
-    # TODO: Write your code here
-    # ==========================
 
-    raise NotImplementedError
+    B, S, V = logits.size()
+
+    # Compute the probabilities & predictions
+    probs = F.log_softmax(logits, dim=2)  # shape (B, S, V)
+    predictions = torch.argmax(logits, dim=2) # (B, S)
+    # We pick out the log probability corresponding to the correct target token Yij from the entire vocabulary of size V.
+    # This is equivalent to the first sum in the loss formula
+    targets_probs = probs.gather(2, targets.unsqueeze(2)).squeeze(2) # (B, S)
+
+    # RHS
+    positions = torch.arange(S, device=targets.device).unsqueeze(0).expand(B, S) # (B, S)
+    rhs_mask = ((positions > eq_positions.unsqueeze(1)) & (mask == 1)).float() # (B, S)
+
+    # Compute the negative log-likelihood loss for each batch
+    loss = -((targets_probs * rhs_mask).sum(dim=1)/rhs_mask.sum(dim=1)) # (B,)
+
+    # Compute the accuracy for each batch
+    accuracy = torch.prod(((rhs_mask == 0) | (predictions == targets)).float(), dim=1) # (B,)
+
+    assert reduction in ['none', 'mean', 'sum'], f"reduction must be 'none', 'mean' or 'sum', got {reduction}"
+    if reduction != 'none': 
+        divider = B if reduction == 'mean' else 1
+        loss = loss.sum(dim=0) / divider # (1,)
+        accuracy = accuracy.sum(dim=0) / divider # (1,)
 
     return loss, accuracy
 

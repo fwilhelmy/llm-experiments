@@ -45,11 +45,11 @@ class LayerNorm(nn.Module):
             The output tensor, having the same shape as `inputs`.
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-        
-        raise NotImplementedError
+        mean = inputs.mean(dim=-1, keepdim=True)
+        var = (inputs - mean).pow(2).mean(dim=-1, keepdim=True)
+        # var = inputs.var(dim=-1, unbiased=False, keepdim=True)
+        normalized = (inputs - mean) / torch.sqrt(var + self.eps)
+        return normalized * self.weight + self.bias
 
     def reset_parameters(self):
         nn.init.ones_(self.weight)
@@ -57,7 +57,6 @@ class LayerNorm(nn.Module):
 
 ########################################################################################
 ########################################################################################
-
 
 class MultiHeadedAttention(nn.Module):
     def __init__(self, d_model: int, num_heads: int, bias: bool = True) -> None:
@@ -114,11 +113,10 @@ class MultiHeadedAttention(nn.Module):
             should not influence on the 6th token (7 > 5).
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-
-        raise NotImplementedError
+        scores = torch.matmul(queries, keys.transpose(-2, -1)) / math.sqrt(self.head_size) # (B, num_heads, S, S)
+        mask = torch.triu(torch.ones(scores.size(-2), scores.size(-1)), diagonal=1).to(scores.device) # (S, S)
+        masked_scores = scores.masked_fill(mask == 1, float('-inf')) # (B, num_heads, S, S)
+        return F.softmax(masked_scores, dim=-1)
 
     def apply_attention(self, queries, keys, values):
         """
@@ -161,10 +159,10 @@ class MultiHeadedAttention(nn.Module):
 
         Returns
         -------
-        outputs (`torch.FloatTensor` of shape `(batch_size, sequence_length, num_heads * head_size)`)
+        context (`torch.FloatTensor` of shape `(batch_size, sequence_length, num_heads * head_size)`)
             Tensor containing the concatenated outputs of the attention for all
             the sequences in the batch, and all positions in each sequence. For
-            example, `outputs[0, 2]` contains the output of the attention
+            example, `context[0, 2]` contains the output of the attention
             (concatenated for all heads) for the 3rd token (index 2) of the 1st
             sequence in the batch (index 0).
 
@@ -176,11 +174,13 @@ class MultiHeadedAttention(nn.Module):
             
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-
-        raise NotImplementedError
+        attn_weights = self.get_attention_weights(queries, keys) # (B, num_heads, S, S)
+        outputs = torch.matmul(attn_weights, values) # (B, num_heads, S, head_size)
+        context = self.merge_heads(outputs) # (B, S, num_heads * head_size)
+        
+        # Use clone().detach() to detach attn_weights from the computation graph
+        # Since we don't need to backpropagate through them, we can detach them from the graph
+        return context, attn_weights.clone().detach()
 
 
     def split_heads(self, tensor):
@@ -204,11 +204,9 @@ class MultiHeadedAttention(nn.Module):
             Here `dim` is the same dimension as the one in the definition of the input `tensor` above.
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-
-        raise NotImplementedError
+        batch_size, seq_size, _ = tensor.size() # Batch size, sequence length, hidden size
+        tensor = tensor.view(batch_size, seq_size, self.num_heads, self.head_size)
+        return tensor.transpose(1, 2) # (batch_size, num_heads, seq_size, head_size)
 
     def merge_heads(self, tensor):
         """
@@ -232,11 +230,9 @@ class MultiHeadedAttention(nn.Module):
             Here `dim` is the same dimension as the one in the definition of the input `tensor` above.
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-        
-        raise NotImplementedError
+        batch_size, num_heads, seq_size, head_size = tensor.size() # (batch_size, num_heads, seq_size, head_size)
+        tensor = tensor.transpose(1, 2) # (batch_size, seq_size, num_heads, head_size)
+        return tensor.reshape(batch_size, seq_size, num_heads * head_size)
 
     def forward(self,  queries: Tensor, keys: Tensor, values: Tensor):
         """
@@ -291,16 +287,19 @@ class MultiHeadedAttention(nn.Module):
             backpropagation. It is returned here for debugging purposes.
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-        
-        raise NotImplementedError
+        Q = self.W_Q(queries)
+        Q = self.split_heads(Q)
 
-        # Use clone().detach() to detach attn_weights from the computation graph
-        # Since we don't need to backpropagate through them, we can detach them from the graph
-        
+        K = self.W_K(keys)
+        K = self.split_heads(K)
 
+        V = self.W_V(values)
+        V = self.split_heads(V)
+        
+        context, attn_weights = self.apply_attention(Q, K, V)
+
+        return self.W_O(context), attn_weights
+        
 ########################################################################################
 ########################################################################################
 
@@ -453,15 +452,19 @@ class GPTEmbedding(nn.Module):
         
         Returns
         -------
-        position_enc (`torch.FloatTensor` of shape `(n_positions, dimension)`)
+        position_embeddings (`torch.FloatTensor` of shape `(n_positions, dimension)`)
             The tensor containing the positional embeddings.
         """
 
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
+        exponants = (torch.arange(dimension, dtype=torch.float32)//2)*2/dimension # (dimension,)
+        positions = torch.arange(n_positions, dtype=torch.float32).unsqueeze(1) # (n_positions, 1)
+        angles = positions / torch.pow(10000, exponants) # (n_positions, dimension)
 
-        raise NotImplementedError
+        position_embeddings = torch.zeros(n_positions, dimension)
+        position_embeddings[:, 0::2] = torch.sin(angles[:, 0::2]) # Apply sin to even indices
+        position_embeddings[:, 1::2] = torch.cos(angles[:, 1::2]) # Apply cos to odd indices
+    
+        return position_embeddings
 
 
     def forward(self, tokens: Tensor) -> Tensor:
@@ -482,11 +485,10 @@ class GPTEmbedding(nn.Module):
             of the 1st sequence in the batch (index 0).
         
         """
-        # ==========================
-        # TODO: Write your code here
-        # ==========================
-        
-        raise NotImplementedError
+       
+        token_embeddings = self.tokens(tokens) # (batch_size, sequence_length, embedding_size)
+        position_embeddings = self.position_encoding[:tokens.size(1), :].unsqueeze(0) # (1, sequence_length, embedding_size)
+        return token_embeddings + position_embeddings # (batch_size, sequence_length, embedding_size)
 
 ########################################################################################
 ########################################################################################
@@ -554,7 +556,10 @@ class GPT(nn.Module):
                 (batch_size, num_layers, num_heads, sequence_length, sequence_length)
         """
 
-        raise NotImplementedError
+        embeddings = self.embedding(x) # (batch_size, sequence_length, embedding_size)
+        outputs, (hidden_states, attentions) = self.decoder(embeddings)
+        logits = self.classifier(outputs) # (batch_size, sequence_length, vocab_size)
+        return logits, (hidden_states, attentions)
 
 ########################################################################################
 ########################################################################################

@@ -3,7 +3,7 @@
 # python run_exp.py --p 31 --operator + --r_train 0.6 --train_batch_size 2**12 --eval_batch_size 2**12 --model gpt --optimizer adamw --lr 1e-3 --momentum 0.9 --weight_decay 1e-1 --n_steps 10**4 * 2 --device cuda --exp_id 0 --exp_name debug --log_dir ../logs --seed 42 --verbose
 """
 import torch
-from train import train
+from main import train
 import argparse
 
 def bool_flag(s):

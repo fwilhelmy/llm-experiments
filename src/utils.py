@@ -82,3 +82,8 @@ def get_loss_and_accuracy(logits, targets, eq_positions, mask, reduction='mean')
         accuracy = accuracy.sum(dim=0) / divider # (1,)
 
     return loss, accuracy
+
+def count_model_params(model):
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    n_params_embeddings = sum(p.numel() for p in model.embedding.parameters() if p.requires_grad)
+    return n_params - n_params_embeddings

@@ -6,6 +6,8 @@ class Arguments:
     operator : str = "+" # ["+", "-", "*", "/"]
     r_train : float = .5
     operation_orders : int = 2 # 2, 3 or [2, 3]
+
+    # Dataloaders
     train_batch_size: int = 512
     eval_batch_size: int = 2**12
     num_workers: int = 0
@@ -22,12 +24,14 @@ class Arguments:
 
     # Optimization
     optimizer: str = 'adamw'  # [sgd, momentum, adam, adamw]
+    scheduler: str = 'dummy'  # [dummy, step, cosine, plateau]
     lr: float = 1e-3
     momentum: float = 0.9
     weight_decay: float = 1e-0
 
     # Training
-    n_epochs : int = 100
+    n_epochs : int = None
+    n_steps : int = 10**4 + 1
     eval_step: int = 100
     save_step: int = 500
 

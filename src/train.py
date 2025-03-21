@@ -1,108 +1,183 @@
-#import torch.nn.functional as F
 import torch
-import torch.optim as optim
-from torch.utils.data import DataLoader
 
-import os
 from tqdm import tqdm
-import time
-import argparse
+import os
+from collections import defaultdict
+from utils import get_loss_and_accuracy
+import numpy as np
 
-from data import get_arithmetic_dataset
-from lstm import LSTMLM
-from gpt import GPT
-from trainer import train as train_model
-from checkpointing import get_all_checkpoints_per_trials
-from plotter import plot_loss_accs
-from utils import seed_experiment
-from arguments import Arguments
-from schedulers import DummyScheduler
+# From: https://stackoverflow.com/questions/71998978/early-stopping-in-pytorch
+class EarlyStopper:
+    """Early stopping with slope-based detection."""
+    def __init__(self, patience=5, min_delta=0.001, warmup_epochs=100, window_size=10, verbose=False):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.warmup_epochs = warmup_epochs
+        self.window_size = window_size
+        self.verbose = verbose
+        self.counter = 0
+        self.loss_history = []
 
-def train(args):
-    # Seed the experiment, for repeatability
-    seed_experiment(args.seed)
+    def update_history(self, validation_loss):
+        self.loss_history.append(validation_loss)
+        if len(self.loss_history) > self.window_size:
+            self.loss_history.pop(0)
+
+    def compute_slope(self):
+        if len(self.loss_history) < self.window_size: return None
+        x = np.arange(self.window_size) # Epochs
+        y = np.array(self.loss_history) # Validation loss
+        A = np.vstack([x, np.ones(len(x))]).T # y = mx + c
+        return np.linalg.lstsq(A, y, rcond=None)[0][0]
+
+    def early_stop(self, validation_loss, epoch):
+        self.update_history(validation_loss)
+
+        # Skip early stopping during warmup.
+        if epoch < self.warmup_epochs: return False
+
+        if len(self.loss_history) == self.window_size:
+            current_slope = self.compute_slope()
+            if abs(current_slope) < self.min_delta:
+                self.counter += 1
+                if self.verbose: print(f"\nEpoch {epoch}: Plateau detected (slope {current_slope:.6f}). Counter: {self.counter}/{self.patience}")
+                if self.counter >= self.patience: return True
+            else: self.counter = 0  # Reset counter if meaningful progress resumes.
+        return False
+
+@torch.no_grad()
+def evaluate(model, loader, device):
+    model.eval()
+    acc = 0
+    loss = 0
+    n = 0
+
+    for batch in loader:
+        batch_x, batch_y, eq_positions, mask = batch # (B, S), (B, S), (B,), (B, S)
+        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+        logits, *_ = model(batch_x) # (B, S, V)
+        batch_loss, batch_acc = get_loss_and_accuracy(logits, batch_y, eq_positions, mask)
+        n += batch_x.shape[0]
+        loss += batch_loss.item() * batch_x.shape[0]
+        acc += batch_acc * batch_x.shape[0]
+
+    # Additional metrics can be added here (e.g., L2 norm of parameters)
+
+    return {"loss" : loss / n, "accuracy": acc / n}
     
-    # Create a directory to save the experiment results
-    checkpoint_path = os.path.join(args.log_dir, str(args.exp_name), str(args.exp_id))
+def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, scheduler, device, exp_name: str, checkpoint_path: str, n_epochs: int, n_steps: int, eval_step: int = 1000, save_step: int = 1000, verbose=True):
+    # Create checkpoint directory if it doesn't exist.
     os.makedirs(checkpoint_path, exist_ok=True)
 
-    # Data
-    (train_dataset, valid_dataset), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, args.r_train, args.operation_orders, is_symmetric=False, shuffle=True, seed=args.seed)
+    # Determine total epochs based on n_steps and the number of batches per epoch.
+    assert n_epochs is not None or n_steps is not None, "Either n_epochs or n_steps should be provided."
+    if n_steps is not None: n_epochs = (n_steps + len(train_loader) - 1) // len(train_loader)
+    else: n_steps = n_epochs * len(train_loader)
     
-    train_dataloader = DataLoader(train_dataset, batch_size=min(args.train_batch_size, len(train_dataset)), shuffle=True, num_workers=args.num_workers)
-    train_dataloader_for_eval = DataLoader(train_dataset, batch_size=min(args.eval_batch_size, len(train_dataset)), shuffle=False, num_workers=args.num_workers)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=min(args.eval_batch_size, len(valid_dataset)), shuffle=False, num_workers=args.num_workers)
+    if verbose: print(f"Number of training epochs ({n_epochs}) & steps ({n_steps})")
 
-    # Model
-    vocabulary_size = len(tokenizer)
-    if args.model == "lstm": model = LSTMLM(vocabulary_size=vocabulary_size, embedding_size=args.embedding_size, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout, padding_index=padding_index, bias_lstm=True, bias_classifier=args.bias_classifier, share_embeddings=args.share_embeddings)
-    elif args.model == "gpt": model = GPT(num_heads=args.num_heads, num_layers=args.num_layers, embedding_size=args.embedding_size, vocabulary_size=vocabulary_size, sequence_length=MAX_LENGTH, multiplier=4, dropout=args.dropout, non_linearity="gelu", padding_index=padding_index, bias_attention=True, bias_classifier=args.bias_classifier, share_embeddings=args.share_embeddings)
-    else: raise ValueError("Unknown model {0}".format(args.model))
-    model = model.to(args.device)
+    all_metrics = defaultdict(lambda: [])
+    all_metrics["train"] = defaultdict(lambda: [])
+    all_metrics["test"] = defaultdict(lambda: [])
+    all_metrics["steps_epoch"] = {}
 
-    # Optimizer
-    if args.optimizer == "adamw": optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    elif args.optimizer == "adam": optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    elif args.optimizer == "sgd": optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    elif args.optimizer == "momentum": optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+    # Evaluate model on training and test sets before training starts.
+    train_statistics = evaluate(model, train_loader_for_eval, device)
+    for k, v in train_statistics.items():
+        all_metrics["train"][k].append(v)
 
-    # Learning rate scheduler
-    scheduler = DummyScheduler(optimizer) # Dummy scheduler that does nothing
-    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.n_epochs, eta_min=1e-5)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2, eta_min=1e-4)
+    test_statistics = evaluate(model, test_loader, device)
+    for k, v in test_statistics.items():
+        all_metrics["test"][k].append(v)
 
-        ## Print parameters
-    if args.verbose :
-        print("=="*20)
-        for k, v in vars(args).items(): print(k, ":", v)
-        print("checkpoint_path:", checkpoint_path)
-        print("dataset_size:", train_dataset.tensors[0].shape[0])
-        print("=="*20)
+    all_metrics["all_steps"].append(0)
+    all_metrics["steps_epoch"][0] = 0
 
-    # Train    
-    all_metrics = train_model(
-        model, train_dataloader, train_dataloader_for_eval, valid_dataloader, optimizer, scheduler,
-        args.device, 
-        args.exp_name, checkpoint_path, 
-        n_epochs=args.n_epochs,
-        eval_step=args.eval_step,
-        save_step=args.save_step,
-        verbose=args.verbose
-    )
+    # Save initial model state.
+    state = {
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+    }
+    torch.save(state, f"{checkpoint_path}/{exp_name}_state_{0}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth")
+  
+    current_lr = scheduler.optimizer.param_groups[0]["lr"]
+    cur_step = 1
+
+    # Early stopping configuration
+    # early_stopping = EarlyStopper(verbose=verbose)
+
+    # Main training loop (per epoch)
+    pbar = tqdm(range(1, n_epochs+1), desc="Training", total=n_epochs)
+    for epoch in pbar:
+        for i, batch in enumerate(train_loader):
+            batch_x, batch_y, eq_positions, mask = batch # (B, S), (B, S), (B,), (B, S)
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+
+            optimizer.zero_grad(set_to_none=True)
+            model.train()
+
+            logits, *_ = model(batch_x) # (B, S, V)
+            loss, _ = get_loss_and_accuracy(logits, batch_y, eq_positions, mask)
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
+            # (No per-batch scheduler update for StepLR; update scheduler once per epoch instead.)
+            # if desired, you could update per batch for other scheduler types.
+            # scheduler.step()
+            # current_lr = scheduler.optimizer.param_groups[0]["lr"]
+              
+            # Evaluate model on training and test sets periodically.
+            if cur_step in [1, n_steps] or cur_step % eval_step == 0:
+                train_statistics = evaluate(model, train_loader_for_eval, device)
+                for k, v in train_statistics.items() : all_metrics["train"][k].append(v)
+
+                test_statistics = evaluate(model, test_loader, device)
+                for k, v in test_statistics.items() : all_metrics["test"][k].append(v)
+
+                all_metrics["all_steps"].append(cur_step)
+                all_metrics["steps_epoch"][cur_step] = epoch
+
+                if verbose:
+                    to_print = "\n" + " | ".join(f"Train {k} : {v:.5f}" for k, v in train_statistics.items())
+                    to_print += " | " + " | ".join(f"Test {k} : {v:.5f}" for k, v in test_statistics.items())
+                    to_print += f" | lr = {current_lr:.5f}"
+                    print(to_print)
+
+            # Save model statistics & checkpoint periodically.
+            if cur_step in [1, n_steps] or cur_step % save_step == 0:
+                state = {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()}
+                torch.save(state, f"{checkpoint_path}/{exp_name}_state_step={cur_step}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth")
+
+                to_save = {k: dict(v) if isinstance(v, defaultdict) else v for k, v in all_metrics.items()}  # to avoid lambda issues
+                torch.save(to_save, f"{checkpoint_path}/{exp_name}_stats.pth")
+
+            # update cur step to pbar
+            pbar.set_postfix({'step': cur_step, 'loss': loss.item(), 'lr': current_lr})
+
+            cur_step += 1
+
+        # We update the learning rate scheduler once per epoch.
+        scheduler.step()
+        current_lr = scheduler.optimizer.param_groups[0]["lr"]
+
+        # if early_stopping.early_stop(evaluate(model, test_loader, device)['loss'], epoch): break
+
+    # Save final model state after training.
+    state = {"model_state_dict": model.state_dict(),"optimizer_state_dict": optimizer.state_dict()}
+    torch.save(state, f"{checkpoint_path}/{exp_name}_state.pth")
     
-    # Plots for the model
-    plot_loss_accs(all_metrics, multiple_runs=False, log_x=False, log_y=False, fileName=args.exp_name, filePath=checkpoint_path, show=False)
+    train_statistics = evaluate(model, train_loader_for_eval, device)
+    for k, v in train_statistics.items() : all_metrics["train"][k].append(v)
 
-    return all_metrics, checkpoint_path
+    test_statistics = evaluate(model, test_loader, device)
+    for k, v in test_statistics.items() : all_metrics["test"][k].append(v)
 
-def train_m_models(args, M:int=None, seeds:list=None):
-    """Train M models and plot the loss and accuracies of each model separately."""
-    assert M is not None or seeds is not None, "Either M or seeds should be provided."
-    if seeds is not None: M = len(seeds)
-    else: seeds = [args.seed + m if args.seed is not None else None for m in range(M)]
-    
-    all_checkpoint_paths = []
+    all_metrics["all_steps"].append(cur_step)
+    all_metrics["steps_epoch"][cur_step] = epoch
 
-    for seed, m in zip(seeds, range(M)):
-        print(f"Model {m+1}/{M}")
-        args.exp_id = m # Set the experiment id
-        args.seed = seed # Set the seed
-        all_metrics, checkpoint_path = train(args) # Train the model
-        all_checkpoint_paths.append(checkpoint_path)
+    to_save = {k: dict(v) if isinstance(v, defaultdict) else v for k, v in all_metrics.items()} # to avoid issues with lambda
+    torch.save(to_save, f"{checkpoint_path}/{exp_name}.pth")
 
-    all_models_per_trials, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True, verbose=args.verbose)
-
-    # Plots for all models
-    plot_loss_accs(all_metrics, multiple_runs=True, log_x=False, log_y=False,fileName=f'{args.exp_name}_M={M}', filePath=args.log_dir, show=False)
-
-    return all_models_per_trials, all_metrics, all_checkpoint_paths
-
-if __name__ == "__main__":
-    args = Arguments()
-    args.n_epochs = 10000
-    args.p = 53
-    args.exp_name = "gpt3_53p"
-    args.model = "gpt"
-
-    all_models_per_trials, all_metrics, all_checkpoint_paths = train_m_models(args, M=2, seeds=None)
+    return all_metrics

@@ -45,9 +45,6 @@ def get_model_files(checkpoint_path, exp_name=None):
     model_files = sorted_nicely(model_files)
     return model_files
 
-########################################################################################
-########################################################################################
-
 def get_all_checkpoints(checkpoint_path, exp_name, just_files=False):
     """
     Load all the checkpoints from the given directory.
@@ -73,10 +70,6 @@ def get_all_checkpoints(checkpoint_path, exp_name, just_files=False):
     all_models = {metrics_dict[f][0] : torch.load(os.path.join(checkpoint_path, f), map_location='cpu') for f in tqdm(model_files)}
 
     return all_models, statistics
-
-
-########################################################################################
-########################################################################################
 
 def get_all_checkpoints_per_trials(all_checkpoint_paths, exp_name, just_files=False, verbose=False):
     
@@ -112,9 +105,6 @@ def get_all_checkpoints_per_trials(all_checkpoint_paths, exp_name, just_files=Fa
         all_statistics_dic = {}
     
     return all_models_per_trials, all_statistics_dic
-
-########################################################################################
-########################################################################################
 
 def get_extrema_performance_steps(all_metrics, T_max=None):
     """

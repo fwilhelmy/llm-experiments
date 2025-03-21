@@ -28,9 +28,6 @@ def modular_division(a: int, b: int, p: int, q: int):
     b_inverse = pow(b, p - 2, p)
     return (a*b_inverse) % q
 
-########################################################################################
-########################################################################################
-
 class Tokenizer:
     """Stores the list of token text to token id mappings and converts between them"""
     def __init__(self, tokens: List[str]) -> None:
@@ -63,9 +60,6 @@ class Tokenizer:
 
     def __len__(self) -> int:
         return len(self.itos)
-
-########################################################################################
-########################################################################################
 
 def get_arithmetic_dataset(
     p: int,
@@ -205,9 +199,6 @@ def get_arithmetic_dataset(
     valid_dataset = TensorDataset(valid_data[:, :-1], valid_data[:, 1:], valid_eq_pos, valid_mask[:, :-1])
 
     return (train_dataset, valid_dataset), tokenizer, max_length, padding_index
-
-########################################################################################
-########################################################################################
 
 if __name__ == "__main__":
     p = 2

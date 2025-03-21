@@ -11,7 +11,7 @@ from lstm import LSTMLM
 from gpt import GPT
 from train import train
 from checkpointing import get_all_checkpoints_per_trials
-from plotter import generate_plots
+from plotter import plot_configuration, plot_all
 from utils import seed_experiment
 from arguments import Arguments
 from schedulers import DummyScheduler
@@ -96,15 +96,15 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
 
     # Plots for all runs of one configuration
     save_path = os.path.join(args.log_dir, args.exp_name, "plots")
-    generate_plots({args.model: all_metrics}, save_path=f"{save_path}/4", mode="std", combined_plots=False)
-    generate_plots({args.model: all_metrics}, save_path=f"{save_path}/combined", mode="std", combined_plots=True)
+    plot_configuration(all_metrics, save_path=f"{save_path}/combined", mode="std")
+    plot_all({args.model: all_metrics}, save_path=f"{save_path}/4", mode="std")
 
     return all_models_per_trials, all_metrics, all_checkpoint_paths
 
 if __name__ == "__main__":
     args = Arguments()
     args.log_dir = "logs/experiment1"
-    args.n_steps = 150
+    args.n_steps = 50
     models = ["lstm", "gpt"]
     results = {}
     for model in models:
@@ -113,4 +113,4 @@ if __name__ == "__main__":
         args.exp_name = model
         _, results[model], _ = train_models(args)
 
-    generate_plots(results, save_path=args.log_dir, mode="std")
+    plot_all(results, save_path=args.log_dir, mode="std")

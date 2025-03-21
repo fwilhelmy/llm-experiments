@@ -25,10 +25,9 @@ class Arguments:
     weight_decay: float = 1e-0
 
     # Training
-    n_epochs : int = None
     n_steps : int = 10**4 + 1
     eval_step: int = 100
-    save_step: int = 500
+    save_step: int = 1000
 
     # Dataloaders
     train_batch_size: int = 512

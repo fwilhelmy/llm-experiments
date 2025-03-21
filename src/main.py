@@ -1,7 +1,7 @@
 #import torch.nn.functional as F
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import TensorDataset, DataLoader
 
 import os
 from tqdm import tqdm
@@ -21,46 +21,7 @@ from schedulers import DummyScheduler
 
 import torch
 
-class Arguments:
-    # Data
-    p: int = 31 # Must be a prime number if operator is "/"
-    operator : str = "+" # ["+", "-", "*", "/"]
-    r_train : float = .5
-    operation_orders : int = 2 # 2, 3 or [2, 3]
-    train_batch_size: int = 512
-    eval_batch_size: int = 2**12
-    num_workers: int = 0
-
-    # Model
-    model: str = 'lstm' # [lstm, gpt]
-    num_heads: int = 4
-    num_layers: int = 2
-    embedding_size: int = 2**7
-    hidden_size: int = 2**7
-    dropout : float = 0.0
-    share_embeddings : bool = False
-    bias_classifier : bool = True
-
-    # Optimization
-    optimizer: str = 'adamw'  # [sgd, momentum, adam, adamw]
-    lr: float = 1e-3
-    momentum: float = 0.9
-    weight_decay: float = 1e-0
-
-    # Training
-    n_epochs : int = 100
-    eval_step: int = 100
-    save_step: int = 500
-
-    # Experiment & Miscellaneous
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    exp_id: int = 0
-    exp_name: str = "test"
-    log_dir: str = 'logs'
-    seed: int = 42    
-    verbose: bool = True
-
-def train_model(args):
+def train_model(args, smoke_test=False, smoke_lvl=1):
     # Seed the experiment, for repeatability
     seed_experiment(args.seed)
     
@@ -70,7 +31,7 @@ def train_model(args):
 
     # Data
     (train_dataset, valid_dataset), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, args.r_train, args.operation_orders, is_symmetric=False, shuffle=True, seed=args.seed)
-    
+
     train_dataloader = DataLoader(train_dataset, batch_size=min(args.train_batch_size, len(train_dataset)), shuffle=True, num_workers=args.num_workers)
     train_dataloader_for_eval = DataLoader(train_dataset, batch_size=min(args.eval_batch_size, len(train_dataset)), shuffle=False, num_workers=args.num_workers)
     valid_dataloader = DataLoader(valid_dataset, batch_size=min(args.eval_batch_size, len(valid_dataset)), shuffle=False, num_workers=args.num_workers)
@@ -120,20 +81,20 @@ def train_model(args):
 
     return all_metrics, checkpoint_path
 
-def train_models(args, seeds:list=[0, 42], rseeds:int=0, smoke_test=False, smoke_lvl=1):
+def train_models(args, seeds:list=[0, 42], rseeds:int=0):
     """Train a model with different seeds and plot the loss and accuracies of each separately."""
     assert seeds is not None or rseeds > 0, "Either M or seeds should be provided."
 
     # If rseeds > 0 then generate rseeds random seeds and concatenate them with seeds
     if rseeds > 0: seeds = seeds + [random.randint(0, 10000) for _ in range(rseeds)]
-    
+
     all_checkpoint_paths = []
 
     for m, seed in enumerate(seeds):
         print(f"Model {m+1}/{len(seeds)}")
         args.exp_id = m # Set the experiment id
         args.seed = seed # Set the seed
-        all_metrics, checkpoint_path = train_model(args) # Train the model
+        all_metrics, checkpoint_path = train_model(args)
         all_checkpoint_paths.append(checkpoint_path)
 
     all_models_per_trials, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True, verbose=args.verbose)
@@ -145,9 +106,5 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0, smoke_test=False, smoke
 
 if __name__ == "__main__":
     args = Arguments()
-    args.n_steps = 10**4 + 1
-    args.p = 31
-    args.exp_name = "gpt3_53p"
-    args.model = "gpt"
-
-    all_models_per_trials, all_metrics, all_checkpoint_paths = train_models(args)
+    args.exp_name = "test"
+    all_models_per_trials, all_metrics, all_checkpoint_paths = train_models(args, smoke_test=True, smoke_lvl=0.2)

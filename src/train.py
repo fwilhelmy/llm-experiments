@@ -70,11 +70,9 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
     os.makedirs(checkpoint_path, exist_ok=True)
 
     # Determine total epochs based on n_steps and the number of batches per epoch.
-    assert n_epochs is not None or n_steps is not None, "Either n_epochs or n_steps should be provided."
-    if n_steps is not None: n_epochs = (n_steps + len(train_loader) - 1) // len(train_loader)
-    else: n_steps = n_epochs * len(train_loader)
+    n_epochs = (n_steps + len(train_loader) - 1) // len(train_loader)
     
-    if verbose: print(f"Number of training epochs ({n_epochs}) & steps ({n_steps})")
+    if verbose: print(f"Number of training epochs ({n_epochs}) & steps ({n_epochs * len(train_loader)})")
 
     all_metrics = defaultdict(lambda: [])
     all_metrics["train"] = defaultdict(lambda: [])
@@ -107,7 +105,7 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
     # early_stopping = EarlyStopper(verbose=verbose)
 
     # Main training loop (per epoch)
-    pbar = tqdm(range(1, n_epochs+1), desc="Training", total=n_epochs)
+    pbar = tqdm(range(1, n_epochs+1), desc="Training", total=n_epochs, bar_format="{desc}: {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt} [{rate_fmt}{postfix}]")
     for epoch in pbar:
         for i, batch in enumerate(train_loader):
             batch_x, batch_y, eq_positions, mask = batch # (B, S), (B, S), (B,), (B, S)
@@ -154,7 +152,7 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
                 torch.save(to_save, f"{checkpoint_path}/{exp_name}_stats.pth")
 
             # update cur step to pbar
-            pbar.set_postfix({'step': cur_step, 'loss': loss.item(), 'lr': current_lr})
+            pbar.set_postfix({'step': cur_step, 'loss': f"{loss.item():.5f}", 'lr': f"{current_lr:.3f}"})
 
             cur_step += 1
 

@@ -50,7 +50,7 @@ def train_model(args):
     # Learning rate scheduler
     if args.scheduler == "dummy": scheduler = DummyScheduler(optimizer) # Dummy scheduler that does nothing
     elif args.scheduler == "step": scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
-    elif args.scheduler == "cosine": scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.n_epochs, eta_min=1e-5)
+    elif args.scheduler == "cosine": scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.n_steps + len(train_dataloader) - 1) // len(train_dataloader), eta_min=1e-5)
     elif args.scheduler == "plateau": scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08)
     else: raise ValueError("Unknown scheduler {0}".format(args.scheduler))
 
@@ -67,8 +67,7 @@ def train_model(args):
         model,
         train_dataloader, train_dataloader_for_eval, valid_dataloader,
         optimizer, scheduler, args.device, 
-        args.exp_name, checkpoint_path,
-        n_epochs=args.n_epochs, n_steps=args.n_steps,
+        args.exp_name, checkpoint_path, n_steps=args.n_steps,
         eval_step=args.eval_step, save_step=args.save_step,
         verbose=args.verbose
     )
@@ -97,14 +96,15 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
 
     # Plots for all runs of one configuration
     save_path = os.path.join(args.log_dir, args.exp_name, "plots")
-    generate_plots({args.model: all_metrics}, save_path=save_path, mode="std")
+    generate_plots({args.model: all_metrics}, save_path=f"{save_path}/4", mode="std", combined_plots=False)
+    generate_plots({args.model: all_metrics}, save_path=f"{save_path}/combined", mode="std", combined_plots=True)
 
     return all_models_per_trials, all_metrics, all_checkpoint_paths
 
 if __name__ == "__main__":
     args = Arguments()
     args.log_dir = "logs/experiment1"
-    args.n_steps = 50
+    args.n_steps = 150
     models = ["lstm", "gpt"]
     results = {}
     for model in models:

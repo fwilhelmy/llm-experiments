@@ -80,7 +80,7 @@ def run_evaluation(metrics, model, train_loader, test_loader, device, step = 0, 
 
     return train_statistics, test_statistics
     
-def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, scheduler, device, exp_name: str, checkpoint_path: str, n_epochs: int, n_steps: int, eval_step: int = 1000, save_step: int = 1000, verbose=True):
+def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, scheduler, device, exp_name: str, checkpoint_path: str, n_steps: int, eval_step: int = 1000, save_step: int = 1000, verbose=True):
     # Create checkpoint directory if it doesn't exist.
     os.makedirs(checkpoint_path, exist_ok=True)
 

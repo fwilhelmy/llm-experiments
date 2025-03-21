@@ -1,12 +1,9 @@
 #import torch.nn.functional as F
 import torch
 import torch.optim as optim
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import DataLoader
 
 import os
-from tqdm import tqdm
-import time
-import argparse
 import random
 
 from data import get_arithmetic_dataset
@@ -14,14 +11,14 @@ from lstm import LSTMLM
 from gpt import GPT
 from train import train
 from checkpointing import get_all_checkpoints_per_trials
-from plotter import plot_loss_accs
+from plotter import generate_plots
 from utils import seed_experiment
 from arguments import Arguments
 from schedulers import DummyScheduler
 
 import torch
 
-def train_model(args, smoke_test=False, smoke_lvl=1):
+def train_model(args):
     # Seed the experiment, for repeatability
     seed_experiment(args.seed)
     
@@ -76,9 +73,6 @@ def train_model(args, smoke_test=False, smoke_lvl=1):
         verbose=args.verbose
     )
     
-    # Plots for the model
-    plot_loss_accs(all_metrics, multiple_runs=False, log_x=False, log_y=False, fileName=args.exp_name, filePath=checkpoint_path, show=False)
-
     return all_metrics, checkpoint_path
 
 def train_models(args, seeds:list=[0, 42], rseeds:int=0):
@@ -88,23 +82,35 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
     # If rseeds > 0 then generate rseeds random seeds and concatenate them with seeds
     if rseeds > 0: seeds = seeds + [random.randint(0, 10000) for _ in range(rseeds)]
 
+    all_metrics = []
     all_checkpoint_paths = []
 
     for m, seed in enumerate(seeds):
         print(f"Model {m+1}/{len(seeds)}")
         args.exp_id = m # Set the experiment id
         args.seed = seed # Set the seed
-        all_metrics, checkpoint_path = train_model(args)
+        metrics, checkpoint_path = train_model(args)
+        all_metrics.append(metrics)
         all_checkpoint_paths.append(checkpoint_path)
 
     all_models_per_trials, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True, verbose=args.verbose)
 
-    # Plots for all models
-    plot_loss_accs(all_metrics, multiple_runs=True, log_x=False, log_y=False, fileName=f'{args.exp_name}', filePath=args.log_dir, show=False)
+    # Plots for all runs of one configuration
+    save_path = os.path.join(args.log_dir, args.exp_name, "plots")
+    generate_plots({args.model: all_metrics}, save_path=save_path, mode="std")
 
     return all_models_per_trials, all_metrics, all_checkpoint_paths
 
 if __name__ == "__main__":
     args = Arguments()
-    args.exp_name = "test"
-    all_models_per_trials, all_metrics, all_checkpoint_paths = train_models(args, smoke_test=True, smoke_lvl=0.2)
+    args.log_dir = "logs/experiment1"
+    args.n_steps = 50
+    models = ["lstm", "gpt"]
+    results = {}
+    for model in models:
+        args.model = model
+        
+        args.exp_name = model
+        _, results[model], _ = train_models(args)
+
+    generate_plots(results, save_path=args.log_dir, mode="std")

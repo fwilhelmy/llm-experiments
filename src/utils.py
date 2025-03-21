@@ -1,7 +1,6 @@
 import random
 import numpy as np
 import torch
-from torch import Tensor
 import torch.nn.functional as F
 
 def seed_experiment(seed):

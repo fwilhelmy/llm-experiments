@@ -4,8 +4,8 @@ import re
 import os
 from tqdm import tqdm
 
-MODEL_FILE_NAME_REGEX = rf'_state_\d+_acc=[\d.eE+-]+_loss=[\d.eE+-]+\.pth$'
-MODEL_FILE_NAME_REGEX_MATCH = rf'_state_(\d+)_acc=([\d.eE+-]+)_loss=([\d.eE+-]+)\.pth$'
+MODEL_FILE_NAME_REGEX = rf'_state_step=\d+_acc=[\d.eE+-]+_loss=[\d.eE+-]+\.pth$'
+MODEL_FILE_NAME_REGEX_MATCH = rf'_state_step=(\d+)_acc=([\d.eE+-]+)_loss=([\d.eE+-]+)\.pth$'
 
 def sorted_nicely(l): 
     """ 
@@ -59,7 +59,7 @@ def get_all_checkpoints(checkpoint_path, exp_name, just_files=False):
     metrics_dict = {f: extract_metrics(f, exp_name) for f in model_files} # {file : (step, test_acc, test_loss)}
 
     if exp_name is not None :
-        statistics = torch.load(os.path.join(checkpoint_path, f"{exp_name}.pth"))
+        statistics = torch.load(os.path.join(checkpoint_path, f"{exp_name}_metrics.pth"))
     else :
         statistics = None
     

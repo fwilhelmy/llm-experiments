@@ -4,7 +4,9 @@ from tqdm import tqdm
 import os
 from collections import defaultdict
 from utils import get_loss_and_accuracy
+from logzy import save_checkpoint, save_metrics
 import numpy as np
+import json
 
 # From: https://stackoverflow.com/questions/71998978/early-stopping-in-pytorch
 class EarlyStopper:
@@ -64,6 +66,19 @@ def evaluate(model, loader, device):
     # Additional metrics can be added here (e.g., L2 norm of parameters)
 
     return {"loss" : loss / n, "accuracy": acc / n}
+
+def run_evaluation(metrics, model, train_loader, test_loader, device, step = 0, epoch = 0):
+    # Evaluate model on training and test sets before training starts.
+    train_statistics = evaluate(model, train_loader, device)
+    for k, v in train_statistics.items(): metrics["train"][k].append(v)
+
+    test_statistics = evaluate(model, test_loader, device)
+    for k, v in test_statistics.items(): metrics["test"][k].append(v)
+
+    metrics["all_steps"].append(step)
+    metrics["steps_epoch"][step] = epoch
+
+    return train_statistics, test_statistics
     
 def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, scheduler, device, exp_name: str, checkpoint_path: str, n_epochs: int, n_steps: int, eval_step: int = 1000, save_step: int = 1000, verbose=True):
     # Create checkpoint directory if it doesn't exist.
@@ -79,25 +94,8 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
     all_metrics["test"] = defaultdict(lambda: [])
     all_metrics["steps_epoch"] = {}
 
-    # Evaluate model on training and test sets before training starts.
-    train_statistics = evaluate(model, train_loader_for_eval, device)
-    for k, v in train_statistics.items():
-        all_metrics["train"][k].append(v)
+    run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device)
 
-    test_statistics = evaluate(model, test_loader, device)
-    for k, v in test_statistics.items():
-        all_metrics["test"][k].append(v)
-
-    all_metrics["all_steps"].append(0)
-    all_metrics["steps_epoch"][0] = 0
-
-    # Save initial model state.
-    state = {
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-    }
-    torch.save(state, f"{checkpoint_path}/{exp_name}_state_{0}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth")
-  
     current_lr = scheduler.optimizer.param_groups[0]["lr"]
     cur_step = 1
 
@@ -120,22 +118,10 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-
-            # (No per-batch scheduler update for StepLR; update scheduler once per epoch instead.)
-            # if desired, you could update per batch for other scheduler types.
-            # scheduler.step()
-            # current_lr = scheduler.optimizer.param_groups[0]["lr"]
               
             # Evaluate model on training and test sets periodically.
-            if cur_step in [1, n_steps] or cur_step % eval_step == 0:
-                train_statistics = evaluate(model, train_loader_for_eval, device)
-                for k, v in train_statistics.items() : all_metrics["train"][k].append(v)
-
-                test_statistics = evaluate(model, test_loader, device)
-                for k, v in test_statistics.items() : all_metrics["test"][k].append(v)
-
-                all_metrics["all_steps"].append(cur_step)
-                all_metrics["steps_epoch"][cur_step] = epoch
+            if cur_step == 1 or (cur_step % eval_step == 0 and cur_step != n_steps):
+                train_statistics, test_statistics = run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device, cur_step, epoch)
 
                 if verbose:
                     to_print = "\n" + " | ".join(f"Train {k} : {v:.5f}" for k, v in train_statistics.items())
@@ -144,14 +130,11 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
                     print(to_print)
 
             # Save model statistics & checkpoint periodically.
-            if cur_step in [1, n_steps] or cur_step % save_step == 0:
-                state = {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()}
-                torch.save(state, f"{checkpoint_path}/{exp_name}_state_step={cur_step}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth")
+            if cur_step == 1 or (cur_step % save_step == 0 and cur_step != n_steps):
+                file_name = f"{exp_name}_state_step={cur_step}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth"
+                save_checkpoint(model, optimizer, os.path.join(checkpoint_path, file_name))
 
-                to_save = {k: dict(v) if isinstance(v, defaultdict) else v for k, v in all_metrics.items()}  # to avoid lambda issues
-                torch.save(to_save, f"{checkpoint_path}/{exp_name}_stats.pth")
-
-            # update cur step to pbar
+            # update tqdm progress bar
             pbar.set_postfix({'step': cur_step, 'loss': f"{loss.item():.5f}", 'lr': f"{current_lr:.3f}"})
 
             cur_step += 1
@@ -163,19 +146,9 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
         # if early_stopping.early_stop(evaluate(model, test_loader, device)['loss'], epoch): break
 
     # Save final model state after training.
-    state = {"model_state_dict": model.state_dict(),"optimizer_state_dict": optimizer.state_dict()}
-    torch.save(state, f"{checkpoint_path}/{exp_name}_state.pth")
+    save_checkpoint(model, optimizer, f"{checkpoint_path}/{exp_name}_state.pth")
     
-    train_statistics = evaluate(model, train_loader_for_eval, device)
-    for k, v in train_statistics.items() : all_metrics["train"][k].append(v)
-
-    test_statistics = evaluate(model, test_loader, device)
-    for k, v in test_statistics.items() : all_metrics["test"][k].append(v)
-
-    all_metrics["all_steps"].append(cur_step)
-    all_metrics["steps_epoch"][cur_step] = epoch
-
-    to_save = {k: dict(v) if isinstance(v, defaultdict) else v for k, v in all_metrics.items()} # to avoid issues with lambda
-    torch.save(to_save, f"{checkpoint_path}/{exp_name}.pth")
+    run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device, cur_step-1, epoch)
+    save_metrics(all_metrics, f"{checkpoint_path}/{exp_name}_metrics.pth")
 
     return all_metrics

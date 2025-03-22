@@ -66,6 +66,7 @@ def get_loss_and_accuracy(logits, targets, eq_positions, mask, reduction='mean')
 
     # RHS Mask
     positions = torch.arange(S, device=targets.device).unsqueeze(0).expand(B, S) # (B, S)
+    mask, eq_positions = mask.to(targets.device), eq_positions.to(targets.device)
     rhs_mask = ((positions > eq_positions.unsqueeze(1)) & (mask == 1)).float() # (B, S)
 
     # Compute the negative log-likelihood loss for each batch

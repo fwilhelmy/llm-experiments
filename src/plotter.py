@@ -36,7 +36,7 @@ def get_metric_data(y_values_runs, steps_runs, mode, seed_index=0):
       steps_runs: list of lists
          X-axis values (steps) for each run.
       mode: str
-         One of "average", "specific", or "std".
+         One of "mean", "specific", or "std".
       seed_index: int
          Index of the run to use in "specific" mode.
     
@@ -45,7 +45,7 @@ def get_metric_data(y_values_runs, steps_runs, mode, seed_index=0):
       curve: list of computed y-axis values (mean, specific, or mean for std mode).
       stds: list of standard deviations (only for "std" mode; otherwise None).
     """
-    if mode in ["average", "std"]:
+    if mode in ["mean", "std"]:
         if not steps_runs:
             return None, None, None
         # Assumes all runs share the same x-axis values.
@@ -60,9 +60,9 @@ def get_metric_data(y_values_runs, steps_runs, mode, seed_index=0):
         else:
             return None, None, None
     else:
-        raise ValueError("Mode must be 'average', 'specific', or 'std'.")
+        raise ValueError("Mode must be 'mean', 'specific', or 'std'.")
 
-def plot_all(data, save_path, mode="average", seed_index=0):
+def plot_all(data, save_path, mode="mean", seed_index=0):
     """
     Plot 4 metrics individually for multiple configurations.
     The 4 metrics are:
@@ -82,7 +82,7 @@ def plot_all(data, save_path, mode="average", seed_index=0):
       save_path: str
          Directory to save the plots.
       mode: str, optional
-         "average" (default) to average across runs,
+         "mean" (default) to mean across runs,
          "specific" to use a specific run (see seed_index),
          or "std" to show the mean with an error band (mean ± std).
       seed_index: int, optional
@@ -117,7 +117,7 @@ def plot_all(data, save_path, mode="average", seed_index=0):
         plt.savefig(fig_path)
         plt.close()
 
-def plot_configuration(metrics, save_path, mode="average", seed_index=0):
+def plot_configuration(metrics, save_path, mode="mean", seed_index=0):
     """
     For a single configuration, plot the combined metrics.
     
@@ -133,7 +133,7 @@ def plot_configuration(metrics, save_path, mode="average", seed_index=0):
       save_path: str
          Directory to save the plots.
       mode: str, optional
-         "average" (default) to average across runs,
+         "mean" (default) to mean across runs,
          "specific" to use a specific run (see seed_index),
          or "std" to show the mean with an error band.
       seed_index: int, optional
@@ -175,9 +175,120 @@ def plot_configuration(metrics, save_path, mode="average", seed_index=0):
         plt.savefig(fig_path)
         plt.close()
 
-# Example usage:
-# To compare multiple configurations by plotting 4 individual figures:
-# plot_all(new_data, "./plots", mode="average")
-#
-# To plot combined (loss and accuracy) metrics for a specific configuration:
-# plot_configuration(new_data, "lstm", "./plots", mode="std")
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_metrics(metrics, axis_labels, key_metric, mode="mean", seed_index=0,
+                 file_name="metrics", save_path=None, figsize=(8, 6), fontsize=12, show=True):
+    """
+    Plot a given metric performance across different configurations.
+    
+    Parameters:
+      metrics: dict
+          Dictionary with the structure:
+              metrics[configuration_name][x_axis][run_id][metric_key]
+          Example:
+              {
+                'lstm': {
+                    0.1: [
+                          {'total_elapsed': 2.18, 'step_time_avg': 0.0436},
+                          {'total_elapsed': 2.10, 'step_time_avg': 0.0420}
+                         ],
+                    0.2: [ ... ]
+                }
+              }
+      axis_labels: tuple
+          A tuple (x_label, y_label) for the plot.
+      key_metric: str
+          The metric key to extract (e.g., "total_elapsed").
+      mode: str, optional
+          One of "mean", "std", or "specific". 
+            - "mean": mean the metric over runs.
+            - "std": mean with error band (mean ± std).
+            - "specific": use the run at index seed_index.
+      seed_index: int, optional
+          When mode is "specific", the run index to select.
+      file_name: str
+          The base name of the file to save the plot (e.g., "metrics" will save "metrics.png").
+      save_path: str, optional
+          Directory in which to save the plot.
+      figsize: tuple, optional
+          Figure size.
+      fontsize: int, optional
+          Font size for labels and title.
+      show: bool, optional
+          If True, the plot is displayed; otherwise, it is closed.
+    """
+    plt.figure(figsize=figsize)
+    
+    # Iterate over each configuration.
+    for config, config_data in metrics.items():
+        x_values = []
+        y_values = []
+        std_values = []  # Only used if mode=="std"
+        
+        # Iterate over each x-axis value in this configuration.
+        for x_val, runs in config_data.items():
+            if not runs:
+                continue
+            
+            # Extract values for key_metric from each run (if available).
+            run_values = [run[key_metric] for run in runs if key_metric in run]
+            if not run_values:
+                continue
+            
+            if mode in ["mean", "std"]:
+                avg_val = np.mean(run_values)
+                x_values.append(x_val)
+                y_values.append(avg_val)
+                if mode == "std":
+                    std_values.append(np.std(run_values))
+            elif mode == "specific":
+                if seed_index < len(run_values):
+                    specific_val = run_values[seed_index]
+                    x_values.append(x_val)
+                    y_values.append(specific_val)
+                else:
+                    # Skip this x_val if the specific seed does not exist.
+                    continue
+            else:
+                raise ValueError("Mode must be one of 'mean', 'std', or 'specific'.")
+        
+        # Sort data points by x-axis value.
+        if x_values:
+            sorted_indices = np.argsort(x_values)
+            x_sorted = np.array(x_values)[sorted_indices]
+            y_sorted = np.array(y_values)[sorted_indices]
+            if mode == "std":
+                std_sorted = np.array(std_values)[sorted_indices]
+            
+            plt.plot(x_sorted, y_sorted, marker='o', label=config)
+            if mode == "std":
+                plt.fill_between(x_sorted,
+                                 y_sorted - std_sorted,
+                                 y_sorted + std_sorted,
+                                 alpha=0.2)
+        else:
+            print(f"Warning: No data available for configuration '{config}' for metric '{key_metric}'.")
+    
+    if axis_labels[0]:
+        plt.xlabel(axis_labels[0], fontsize=fontsize)
+    if axis_labels[1]:
+        plt.ylabel(axis_labels[1], fontsize=fontsize)
+    
+    plt.title(file_name.capitalize(), fontsize=fontsize)
+    plt.legend(fontsize=fontsize)
+    plt.grid(True)
+    plt.tight_layout()
+    
+    if save_path is not None:
+        os.makedirs(save_path, exist_ok=True)
+        file_path = os.path.join(save_path, f"{file_name}.png")
+        plt.savefig(file_path)
+    
+    if show:
+        plt.show()
+    else:
+        plt.close()
+

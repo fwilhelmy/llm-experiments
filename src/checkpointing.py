@@ -4,7 +4,7 @@ import re
 import os
 from tqdm import tqdm
 
-MODEL_FILE_NAME_REGEX = rf'_state_step=\d+_acc=[\d.eE+-]+_loss=[\d.eE+-]+\.pth$'
+MODEL_FILE_NAME_REGEX = rf'_state\.pth$'
 MODEL_FILE_NAME_REGEX_MATCH = rf'_state_step=(\d+)_acc=([\d.eE+-]+)_loss=([\d.eE+-]+)\.pth$'
 
 def sorted_nicely(l): 
@@ -78,8 +78,6 @@ def get_all_checkpoints_per_trials(all_checkpoint_paths, exp_name, just_files=Fa
 
     n_model = len(all_checkpoint_paths)
     for i, checkpoint_path in enumerate(all_checkpoint_paths) :
-        print(f"Model {i+1}/{n_model}")
-
         if verbose : 
             print(checkpoint_path)
             #print(os.listdir(checkpoint_path))

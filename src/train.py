@@ -132,7 +132,7 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
             # Save model statistics & checkpoint periodically.
             if cur_step == 1 or (cur_step % save_step == 0 and cur_step != n_steps):
                 file_name = f"{exp_name}_state_step={cur_step}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth"
-                save_checkpoint(model, optimizer, os.path.join(checkpoint_path, file_name))
+                save_checkpoint(model, optimizer, os.path.join(checkpoint_path, file_name), verbose=verbose)
 
             # update tqdm progress bar
             pbar.set_postfix({'step': cur_step, 'loss': f"{loss.item():.5f}", 'lr': f"{current_lr:.3f}"})
@@ -145,10 +145,15 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
 
         # if early_stopping.early_stop(evaluate(model, test_loader, device)['loss'], epoch): break
 
+    # Compute the global average step time.
+    total_time = pbar.format_dict["elapsed"] # total seconds for all epochs
+    step_time_avg = total_time / n_steps
+    all_metrics["performance"] = {"total_elapsed": total_time, "step_time_avg": step_time_avg}
+
     # Save final model state after training.
-    save_checkpoint(model, optimizer, f"{checkpoint_path}/{exp_name}_state.pth")
+    save_checkpoint(model, optimizer, f"{checkpoint_path}/{exp_name}_state.pth", verbose=verbose)
     
     run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device, cur_step-1, epoch)
-    save_metrics(all_metrics, f"{checkpoint_path}/{exp_name}_metrics.pth")
+    save_metrics(all_metrics, f"{checkpoint_path}/{exp_name}_metrics.pth", verbose=verbose)
 
     return all_metrics

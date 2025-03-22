@@ -4,39 +4,39 @@ from collections import defaultdict
 
 # --- Checkpoint Functions (Model + Optimizer) ---
 
-def save_checkpoint(model, optimizer, filepath):
+def save_checkpoint(model, optimizer, filepath, verbose=True):
     """Save model and optimizer states to a file."""
     checkpoint = {
         'model_state': model.state_dict(),
         'optimizer_state': optimizer.state_dict()
     }
     torch.save(checkpoint, filepath)
-    print(f"Checkpoint saved to {filepath}")
+    if verbose: print(f"Checkpoint saved to {filepath}")
 
-def load_checkpoint(filepath, model, optimizer, map_location='cpu'):
+def load_checkpoint(filepath, model, optimizer, map_location='cpu', verbose=True):
     """Load model and optimizer states from a file and update them."""
     checkpoint = torch.load(filepath, map_location=map_location)
     model.load_state_dict(checkpoint['model_state'])
     optimizer.load_state_dict(checkpoint['optimizer_state'])
-    print(f"Checkpoint loaded from {filepath}")
+    if verbose: print(f"Checkpoint loaded from {filepath}")
     return model, optimizer
 
 # --- Metrics Functions ---
 
-def save_metrics(metrics, filepath):
+def save_metrics(metrics, filepath, verbose=True):
     """Save training metrics to a file."""
     to_save = {k: dict(v) if isinstance(v, defaultdict) else v for k, v in metrics.items()}  # to avoid lambda issues
     torch.save(to_save, filepath)
-    print(f"Metrics saved to {filepath}")
+    if verbose: print(f"Metrics saved to {filepath}")
 
-def load_metrics(filepath, map_location='cpu'):
+def load_metrics(filepath, map_location='cpu', verbose=True):
     """Load training metrics from a file, or return None if missing."""
     if os.path.exists(filepath):
         metrics = torch.load(filepath, map_location=map_location)
-        print(f"Metrics loaded from {filepath}")
+        if verbose: print(f"Metrics loaded from {filepath}")
         return metrics
     else:
-        print(f"Metrics file not found at {filepath}")
+        if verbose: print(f"Metrics file not found at {filepath}")
         return None
 
 # --- How to Update Your Code ---

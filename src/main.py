@@ -81,36 +81,33 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
     # If rseeds > 0 then generate rseeds random seeds and concatenate them with seeds
     if rseeds > 0: seeds = seeds + [random.randint(0, 10000) for _ in range(rseeds)]
 
-    all_metrics = []
     all_checkpoint_paths = []
-
+    all_metrics = []
+    print(f"Training model {args.exp_name}")
     for m, seed in enumerate(seeds):
-        print(f"Model {m+1}/{len(seeds)}")
+        print(f"({m}/{len(seeds)}) Running training for seed {seed}")
         args.exp_id = m # Set the experiment id
         args.seed = seed # Set the seed
-        metrics, checkpoint_path = train_model(args)
-        all_metrics.append(metrics)
+        _, checkpoint_path = train_model(args)
         all_checkpoint_paths.append(checkpoint_path)
-
-    all_models_per_trials, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True, verbose=args.verbose)
-
+        
+    all_models_paths, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True, verbose=args.verbose)
     # Plots for all runs of one configuration
-    save_path = os.path.join(args.log_dir, args.exp_name, "plots")
-    plot_configuration(all_metrics, save_path=f"{save_path}/combined", mode="std")
-    plot_all({args.model: all_metrics}, save_path=f"{save_path}/4", mode="std")
+    save_path = os.path.join(args.log_dir, args.exp_name)
+    plot_configuration(all_metrics, save_path=f"{save_path}", mode="std")
 
-    return all_models_per_trials, all_metrics, all_checkpoint_paths
+    return all_models_paths, all_metrics
 
 if __name__ == "__main__":
     args = Arguments()
     args.log_dir = "logs/experiment1"
-    args.n_steps = 50
+    args.n_steps = 1500
     models = ["lstm", "gpt"]
     results = {}
     for model in models:
         args.model = model
         
         args.exp_name = model
-        _, results[model], _ = train_models(args)
+        results[model], _ = train_models(args)
 
     plot_all(results, save_path=args.log_dir, mode="std")

@@ -59,7 +59,7 @@ def get_all_checkpoints(checkpoint_path, exp_name, just_files=False):
     metrics_dict = {f: extract_metrics(f, exp_name) for f in model_files} # {file : (step, test_acc, test_loss)}
 
     if exp_name is not None :
-        statistics = torch.load(os.path.join(checkpoint_path, f"{exp_name}_metrics.pth"))
+        statistics = torch.load(os.path.join(checkpoint_path, f"{exp_name}_metrics.pth"), map_location='cpu')
     else :
         statistics = None
     
@@ -140,7 +140,6 @@ def get_extrema_performance_steps(all_metrics, T_max=None):
     test_loss = all_metrics["test"]['loss'][:T_max_index]
     train_accuracy = all_metrics["train"]['accuracy'][:T_max_index]
     test_accuracy = all_metrics["test"]['accuracy'][:T_max_index]
-    
 
     # Find the minimum train loss and the step at which it was achieved
     min_train_loss = min(train_loss)

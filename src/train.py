@@ -63,9 +63,13 @@ def evaluate(model, loader, device):
         loss += batch_loss.item() * batch_x.shape[0]
         acc += batch_acc * batch_x.shape[0]
 
-    # Additional metrics can be added here (e.g., L2 norm of parameters)
+        l2_norm = 0.0
+        for p in model.parameters():
+            if p.requires_grad:
+                l2_norm += p.norm(2).item() ** 2  # Square the norm for each parameter tensor
+        l2_norm = l2_norm ** 0.5  # Take the square root to get the overall ℓ₂ norm
 
-    return {"loss" : loss / n, "accuracy": acc / n}
+    return {"loss": loss / n, "accuracy": acc / n, "l2_norm": l2_norm}
 
 def run_evaluation(metrics, model, train_loader, test_loader, device, step = 0, epoch = 0):
     # Evaluate model on training and test sets before training starts.

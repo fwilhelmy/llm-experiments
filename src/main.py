@@ -27,7 +27,21 @@ def train_model(args):
     os.makedirs(checkpoint_path, exist_ok=True)
 
     # Data
-    (train_dataset, valid_dataset), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, args.r_train, args.operation_orders, is_symmetric=False, shuffle=True, seed=args.seed)
+    if isinstance(args.operation_orders, int):
+        (train_dataset, valid_dataset), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, args.r_train, args.operation_orders, is_symmetric=False, shuffle=True, seed=args.seed)
+    else:
+        (dataset, _), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, 1.0, args.operation_orders, seed=args.seed)
+        vocabulary_size = len(tokenizer)
+        dataset_per_oders = {
+            2 : torch.utils.data.Subset(dataset,[i for i in range(len(dataset)) if dataset[i][2] == 3]), # a + b = r EOS PAD PAD
+            3 : torch.utils.data.Subset(dataset,[i for i in range(len(dataset)) if dataset[i][2] == 5]) # a + b + c = r EOS
+        }
+        train_dataset_2, valid_dataset_2 = torch.utils.data.random_split(dataset_per_oders[2], [args.r_train, 1-args.r_train])
+        train_dataset_3, valid_dataset_3 = torch.utils.data.random_split(dataset_per_oders[3], [args.r_train, 1-args.r_train])
+        train_dataset = torch.utils.data.ConcatDataset([train_dataset_2, train_dataset_3])
+        valid_dataset = torch.utils.data.ConcatDataset([valid_dataset_2, valid_dataset_3])
+        train_dataset = torch.utils.data.Subset(train_dataset, torch.randperm(len(train_dataset)))
+        valid_dataset = torch.utils.data.Subset(valid_dataset, torch.randperm(len(valid_dataset)))
 
     train_dataloader = DataLoader(train_dataset, batch_size=min(args.train_batch_size, len(train_dataset)), shuffle=True, num_workers=args.num_workers)
     train_dataloader_for_eval = DataLoader(train_dataset, batch_size=min(args.eval_batch_size, len(train_dataset)), shuffle=False, num_workers=args.num_workers)
@@ -59,7 +73,8 @@ def train_model(args):
         print("=="*20)
         for k, v in vars(args).items(): print(k, ":", v)
         print("checkpoint_path:", checkpoint_path)
-        print("dataset_size:", train_dataset.tensors[0].shape[0])
+        print("train_dataset_size:", train_dataset.tensors[0].shape[0])
+        print("valid_dataset_size:", train_dataset.tensors[0].shape[0])
         print("=="*20)
 
     # Train    
@@ -85,7 +100,7 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
     all_metrics = []
     print(f"Training model {args.exp_name}")
     for m, seed in enumerate(seeds):
-        print(f"({m}/{len(seeds)}) Running training for seed {seed}")
+        print(f"({m+1}/{len(seeds)}) Running training for seed {seed}")
         args.exp_id = m # Set the experiment id
         args.seed = seed # Set the seed
         _, checkpoint_path = train_model(args)
@@ -101,13 +116,14 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
 if __name__ == "__main__":
     args = Arguments()
     args.log_dir = "logs/experiment1"
-    args.n_steps = 1500
-    models = ["lstm", "gpt"]
+    args.n_steps = 50
+    args.operation_orders = 2
+    models = ["lstm"]
     results = {}
     for model in models:
         args.model = model
         
         args.exp_name = model
-        results[model], _ = train_models(args)
+        results[model], _ = train_models(args, [0])
 
     plot_all(results, save_path=args.log_dir, mode="std")

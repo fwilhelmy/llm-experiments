@@ -1,8 +1,11 @@
+# Old code to manage saves, everything is not managed in metrics.py
+
 import torch
 import numpy as np
 import re
 import os
 from tqdm import tqdm
+from logzy import save_metrics
 
 MODEL_FILE_NAME_REGEX = rf'_state\.pth$'
 MODEL_FILE_NAME_REGEX_MATCH = rf'_state_step=(\d+)_acc=([\d.eE+-]+)_loss=([\d.eE+-]+)\.pth$'
@@ -261,3 +264,48 @@ def get_extrema_performance_steps_per_trials(all_metrics, T_max=None):
         "max_test_accuracy_step_std": max_test_accuracy_step_std,
         "T_max_indexes" : T_max_indexes
     }
+
+# Code to convert to the new metrics system the old data
+def convert_old_metrics(runs_dirs, configuration_name):
+    _, old_metrics = get_all_checkpoints_per_trials(runs_dirs, configuration_name, just_files=True, verbose=True)
+
+    for run_id, run_dir in enumerate(runs_dirs):
+        new_metrics = {}
+        new_metrics["operation_orders"] = [2]
+        new_metrics["steps"] = old_metrics["all_steps"][run_id]
+        new_metrics["epochs"] = list(old_metrics["steps_epoch"][run_id].values())
+        if "performance" in old_metrics:
+            new_metrics["total_time"] = old_metrics["performance"][run_id]["total_elapsed"]
+            new_metrics["avg_step_time"] = old_metrics["performance"][run_id]["step_time_avg"]
+        new_metrics["train"] = {}
+        new_metrics["test"] = {}
+        for mode in ["train", "test"]:
+            for key, data in old_metrics[mode].items():
+                new_metrics[mode][key] = np.array([data[run_id]])  # shape: (1, n_evals)
+        save_metrics(new_metrics, os.path.join(run_dir,f"{configuration_name}_metrics.json"))
+
+def convert_old_experiments(experiments_dir, has_configs=True):
+    for model_name in os.listdir(experiments_dir):
+        model_path = os.path.join(experiments_dir, model_name)
+        if not os.path.isdir(model_path): continue
+        if has_configs:
+            for config_name in os.listdir(model_path):
+                config_path = os.path.join(model_path, config_name)
+                if not os.path.isdir(config_path): continue
+                runs_dirs = []
+                old_filename = f"{config_name}_metrics.pth"
+                for run in os.listdir(config_path):
+                    run_path = os.path.join(config_path, run)
+                    if os.path.isdir(run_path) and os.path.exists(os.path.join(run_path, old_filename)):
+                        runs_dirs.append(run_path)
+                convert_old_metrics(runs_dirs, config_name)
+                print(f"Converted {config_name} metrics")
+        else:
+            runs_dirs = []
+            old_filename = f"{model_name}_metrics.pth"
+            for run in os.listdir(model_path):
+                run_path = os.path.join(model_path, run)
+                if os.path.isdir(run_path) and os.path.exists(os.path.join(run_path, old_filename)):
+                    runs_dirs.append(run_path)
+            convert_old_metrics(runs_dirs, model_name)
+            print(f"Converted {model_name} metrics")

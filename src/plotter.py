@@ -1,106 +1,39 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from metrics import get_plot_data, extract_best_train_and_test_metrics
 
-def convert_value(val):
-    """Convert a tensor to a float if necessary."""
-    return val.item() if hasattr(val, "item") else val
-
-def compute_mean_std(y_values_runs):
+def plot_metrics_across_configurations(data, save_directory, mode="mean", seed_index=0):
     """
-    Compute mean and standard deviation across runs at each x-axis point.
+    Generate plots comparing a single metric across multiple configurations.
+    
+    This function produces one figure per metric (train loss, train accuracy, test loss,
+    test accuracy) where each configuration is represented by its corresponding curve.
     
     Parameters:
-      y_values_runs: list of lists
-         Each inner list contains metric values for a run.
-         
-    Returns:
-      means: list of mean values per x-axis index.
-      stds: list of standard deviation values per x-axis index.
+        data (dict): Dictionary where each key is a configuration name and the value is a dict containing:
+                     - 'train': {'loss': [...], 'accuracy': [...]}
+                     - 'test': {'loss': [...], 'accuracy': [...]}
+                     - 'all_steps': list of lists (step values for each run)
+        save_directory (str): Directory where the plots will be saved.
+        mode (str): 'mean', 'std', or 'specific' to determine how the data is aggregated.
+        seed_index (int): Run index to use if mode is 'specific'.
     """
-    n_points = len(y_values_runs[0])
-    means, stds = [], []
-    for i in range(n_points):
-        values = [convert_value(run[i]) for run in y_values_runs]
-        means.append(np.mean(values))
-        stds.append(np.std(values))
-    return means, stds
-
-def get_metric_data(y_values_runs, steps_runs, mode, seed_index=0):
-    """
-    Extract the x-axis and y-axis data based on the chosen mode.
+    os.makedirs(save_directory, exist_ok=True)
     
-    Parameters:
-      y_values_runs: list of lists
-         Metric values for each run.
-      steps_runs: list of lists
-         X-axis values (steps) for each run.
-      mode: str
-         One of "mean", "specific", or "std".
-      seed_index: int
-         Index of the run to use in "specific" mode.
+    metrics_to_plot = [('train', 'loss'),
+                       ('train', 'accuracy'),
+                       ('test', 'loss'),
+                       ('test', 'accuracy')]
     
-    Returns:
-      steps: list of x-axis values.
-      curve: list of computed y-axis values (mean, specific, or mean for std mode).
-      stds: list of standard deviations (only for "std" mode; otherwise None).
-    """
-    if mode in ["mean", "std"]:
-        if not steps_runs:
-            return None, None, None
-        # Assumes all runs share the same x-axis values.
-        steps = steps_runs[0]
-        means, stds = compute_mean_std(y_values_runs)
-        return steps, means, stds
-    elif mode == "specific":
-        if seed_index < len(y_values_runs):
-            steps = steps_runs[seed_index]
-            specific_values = [convert_value(val) for val in y_values_runs[seed_index]]
-            return steps, specific_values, None
-        else:
-            return None, None, None
-    else:
-        raise ValueError("Mode must be 'mean', 'specific', or 'std'.")
-
-def plot_all(data, save_path, mode="mean", seed_index=0):
-    """
-    Plot 4 metrics individually for multiple configurations.
-    The 4 metrics are:
-      - Train Loss
-      - Train Accuracy
-      - Eval (Test) Loss
-      - Eval (Test) Accuracy
-    
-    Each figure compares the corresponding metric for all configurations.
-    
-    Parameters:
-      data: dict
-         New data structure where each key is a configuration name and the value is a dict containing:
-            - 'train': {'loss': [...], 'accuracy': [...]}
-            - 'test': {'loss': [...], 'accuracy': [...]}
-            - 'all_steps': [...]
-      save_path: str
-         Directory to save the plots.
-      mode: str, optional
-         "mean" (default) to mean across runs,
-         "specific" to use a specific run (see seed_index),
-         or "std" to show the mean with an error band (mean ± std).
-      seed_index: int, optional
-         When mode is "specific", the run index to display.
-    """
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-    
-    # Define the 4 metric plots: train loss, train accuracy, eval loss, eval accuracy.
-    for data_type, metric in [('train', 'loss'), ('train', 'accuracy'),
-                              ('test', 'loss'), ('test', 'accuracy')]:
-        plt.figure()
-        for config_name, metrics in data.items():
-            steps_runs = metrics['all_steps']
-            y_values_runs = metrics[data_type][metric]
-            steps, curve, stds = get_metric_data(y_values_runs, steps_runs, mode, seed_index)
+    for data_type, metric in metrics_to_plot:
+        plt.figure(figsize=(8, 6))
+        for config_name, config_data in data.items():
+            steps_runs = config_data['all_steps']
+            y_values_runs = config_data[data_type][metric]
+            steps, curve, stds = get_plot_data(y_values_runs, steps_runs, mode, seed_index)
             if steps is None or curve is None:
-                print(f"Warning: Data not available for configuration '{config_name}' for {data_type} {metric} in mode '{mode}'.")
+                print(f"Warning: Data not available for {data_type} {metric} in config {config_name}")
                 continue
             plt.plot(steps, curve, label=config_name)
             if mode == "std" and stds is not None:
@@ -109,186 +42,122 @@ def plot_all(data, save_path, mode="mean", seed_index=0):
                                  np.array(curve) + np.array(stds),
                                  alpha=0.2)
         plt.xlabel("Steps")
-        plt.title(f"{data_type.capitalize()} {metric.capitalize()}")
+        plt.title(f"{data_type.capitalize()} {metric.capitalize()} Across Configurations")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        fig_path = os.path.join(save_path, f"{data_type}_{metric}.png")
-        plt.savefig(fig_path)
+        plt.savefig(os.path.join(save_directory, f"{data_type}_{metric}.png"))
         plt.close()
 
-def plot_configuration(metrics, save_path, mode="mean", seed_index=0):
+def plot_single_configuration_metrics(config_name, metrics, save_directory, mode="mean", seed_index=0):
     """
-    For a single configuration, plot the combined metrics.
+    Generate plots for a single configuration, comparing train and test curves for loss and accuracy.
     
-    This function produces two plots:
-      - One for loss (with the train line in blue and the eval line in red)
-      - One for accuracy (with the train line in blue and the eval line in red)
+    Two figures are produced: one for loss and one for accuracy.
     
     Parameters:
-      metrics: dict
-         The metrics for the configuration
-      config_name: str
-         The configuration to plot.
-      save_path: str
-         Directory to save the plots.
-      mode: str, optional
-         "mean" (default) to mean across runs,
-         "specific" to use a specific run (see seed_index),
-         or "std" to show the mean with an error band.
-      seed_index: int, optional
-         When mode is "specific", the run index to display.
+        config_name (str): Name of the configuration.
+        metrics (dict): Dictionary with keys 'train', 'test', and 'all_steps'.
+        save_directory (str): Directory where the plots will be saved.
+        mode (str): 'mean', 'std', or 'specific' for selecting the plot data.
+        seed_index (int): Run index if mode is 'specific'.
     """
-    
+    os.makedirs(save_directory, exist_ok=True)
     steps_runs = metrics['all_steps']
     
     for metric in ['loss', 'accuracy']:
-        plt.figure()
-        # Retrieve train data.
-        steps_train, curve_train, stds_train = get_metric_data(metrics['train'][metric], steps_runs, mode, seed_index)
-        # Retrieve eval data (using 'test').
-        steps_eval, curve_eval, stds_eval = get_metric_data(metrics['test'][metric], steps_runs, mode, seed_index)
-        
-        if (steps_train is None or curve_train is None or
-            steps_eval is None or curve_eval is None):
-            print(f"Warning: Data not available for metric '{metric}' in mode '{mode}'.")
+        plt.figure(figsize=(8, 6))
+        # Get train data
+        steps_train, curve_train, stds_train = get_plot_data(metrics['train'][metric], steps_runs, mode, seed_index)
+        # Get test data
+        steps_test, curve_test, stds_test = get_plot_data(metrics['test'][metric], steps_runs, mode, seed_index)
+        if steps_train is None or curve_train is None or steps_test is None or curve_test is None:
+            print(f"Warning: Missing data for {metric} in configuration {config_name}")
             continue
-        
-        # Plot train (blue) and eval (red).
-        plt.plot(steps_train, curve_train, color='blue', label="Train")
-        plt.plot(steps_eval, curve_eval, color='red', label="Eval")
+        plt.plot(steps_train, curve_train, label="Train", color='blue')
+        plt.plot(steps_test, curve_test, label="Test", color='red')
         if mode == "std":
             plt.fill_between(steps_train,
                              np.array(curve_train) - np.array(stds_train),
                              np.array(curve_train) + np.array(stds_train),
                              color='blue', alpha=0.2)
-            plt.fill_between(steps_eval,
-                             np.array(curve_eval) - np.array(stds_eval),
-                             np.array(curve_eval) + np.array(stds_eval),
+            plt.fill_between(steps_test,
+                             np.array(curve_test) - np.array(stds_test),
+                             np.array(curve_test) + np.array(stds_test),
                              color='red', alpha=0.2)
         plt.xlabel("Steps")
-        plt.title(metric.capitalize())
+        plt.ylabel(metric.capitalize())
+        plt.title(f"Configuration: {config_name} - {metric.capitalize()} Over Steps")
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        fig_path = os.path.join(save_path, f"{metric}.png")
-        plt.savefig(fig_path)
+        plt.savefig(os.path.join(save_directory, f"{config_name}_{metric}.png"))
         plt.close()
 
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-
-def plot_metrics(metrics, axis_labels, key_metric, mode="mean", seed_index=0,
-                 file_name="metrics", save_path=None, figsize=(8, 6), fontsize=12, show=True):
-    """
-    Plot a given metric performance across different configurations.
+def plot_best_across_configurations(results, save_directory):
+    os.makedirs(save_directory, exist_ok=True)
     
-    Parameters:
-      metrics: dict
-          Dictionary with the structure:
-              metrics[configuration_name][x_axis][run_id][metric_key]
-          Example:
-              {
-                'lstm': {
-                    0.1: [
-                          {'total_elapsed': 2.18, 'step_time_avg': 0.0436},
-                          {'total_elapsed': 2.10, 'step_time_avg': 0.0420}
-                         ],
-                    0.2: [ ... ]
-                }
-              }
-      axis_labels: tuple
-          A tuple (x_label, y_label) for the plot.
-      key_metric: str
-          The metric key to extract (e.g., "total_elapsed").
-      mode: str, optional
-          One of "mean", "std", or "specific". 
-            - "mean": mean the metric over runs.
-            - "std": mean with error band (mean ± std).
-            - "specific": use the run at index seed_index.
-      seed_index: int, optional
-          When mode is "specific", the run index to select.
-      file_name: str
-          The base name of the file to save the plot (e.g., "metrics" will save "metrics.png").
-      save_path: str, optional
-          Directory in which to save the plot.
-      figsize: tuple, optional
-          Figure size.
-      fontsize: int, optional
-          Font size for labels and title.
-      show: bool, optional
-          If True, the plot is displayed; otherwise, it is closed.
-    """
-    plt.figure(figsize=figsize)
+    best_metrics_data = {config_name: extract_best_train_and_test_metrics(config_data) for config_name, config_data in results.items()}
+    config_names = sorted(best_metrics_data.keys())
     
-    # Iterate over each configuration.
-    for config, config_data in metrics.items():
-        x_values = []
-        y_values = []
-        std_values = []  # Only used if mode=="std"
-        
-        # Iterate over each x-axis value in this configuration.
-        for x_val, runs in config_data.items():
-            if not runs:
-                continue
-            
-            # Extract values for key_metric from each run (if available).
-            run_values = [run[key_metric] for run in runs if key_metric in run]
-            if not run_values:
-                continue
-            
-            if mode in ["mean", "std"]:
-                avg_val = np.mean(run_values)
-                x_values.append(x_val)
-                y_values.append(avg_val)
-                if mode == "std":
-                    std_values.append(np.std(run_values))
-            elif mode == "specific":
-                if seed_index < len(run_values):
-                    specific_val = run_values[seed_index]
-                    x_values.append(x_val)
-                    y_values.append(specific_val)
-                else:
-                    # Skip this x_val if the specific seed does not exist.
-                    continue
-            else:
-                raise ValueError("Mode must be one of 'mean', 'std', or 'specific'.")
-        
-        # Sort data points by x-axis value.
-        if x_values:
-            sorted_indices = np.argsort(x_values)
-            x_sorted = np.array(x_values)[sorted_indices]
-            y_sorted = np.array(y_values)[sorted_indices]
-            if mode == "std":
-                std_sorted = np.array(std_values)[sorted_indices]
-            
-            plt.plot(x_sorted, y_sorted, marker='o', label=config)
-            if mode == "std":
-                plt.fill_between(x_sorted,
-                                 y_sorted - std_sorted,
-                                 y_sorted + std_sorted,
-                                 alpha=0.2)
-        else:
-            print(f"Warning: No data available for configuration '{config}' for metric '{key_metric}'.")
+    train_best_losses = [best_metrics_data[config]['train']['loss']['best_value'] for config in config_names]
+    test_best_losses = [best_metrics_data[config]['test']['loss']['best_value'] for config in config_names]
+    train_loss_steps = [best_metrics_data[config]['train']['loss']['best_step'] for config in config_names]
+    test_loss_steps = [best_metrics_data[config]['test']['loss']['best_step'] for config in config_names]
+    train_best_accuracies = [best_metrics_data[config]['train']['accuracy']['best_value'] for config in config_names]
+    test_best_accuracies = [best_metrics_data[config]['test']['accuracy']['best_value'] for config in config_names]
+    train_accuracy_steps = [best_metrics_data[config]['train']['accuracy']['best_step'] for config in config_names]
+    test_accuracy_steps = [best_metrics_data[config]['test']['accuracy']['best_step'] for config in config_names]
     
-    if axis_labels[0]:
-        plt.xlabel(axis_labels[0], fontsize=fontsize)
-    if axis_labels[1]:
-        plt.ylabel(axis_labels[1], fontsize=fontsize)
+    # Figure 1: Best Loss vs. Configuration (logarithmic y-axis)
+    plt.figure(figsize=(8, 6))
+    plt.plot(config_names, train_best_losses, marker='o', label='Train Loss')
+    plt.plot(config_names, test_best_losses, marker='o', label='Test Loss')
+    plt.yscale('log')
+    plt.xlabel("Configuration")
+    plt.ylabel("Best Loss (log scale)")
+    plt.title("Best Loss vs. Configuration")
+    plt.legend()
+    plt.grid(True, which="both", ls="--")
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_directory, "best_loss.png"))
+    plt.close()
     
-    plt.title(file_name.capitalize(), fontsize=fontsize)
-    plt.legend(fontsize=fontsize)
+    # Figure 2: Step at which Best Loss is reached vs. Configuration
+    plt.figure(figsize=(8, 6))
+    plt.plot(config_names, train_loss_steps, marker='o', label='Train Loss Step')
+    plt.plot(config_names, test_loss_steps, marker='o', label='Test Loss Step')
+    plt.xlabel("Configuration")
+    plt.ylabel("Step of Best Loss")
+    plt.title("Best Loss Step vs. Configuration")
+    plt.legend()
     plt.grid(True)
     plt.tight_layout()
+    plt.savefig(os.path.join(save_directory, "best_loss_step.png"))
+    plt.close()
     
-    if save_path is not None:
-        os.makedirs(save_path, exist_ok=True)
-        file_path = os.path.join(save_path, f"{file_name}.png")
-        plt.savefig(file_path)
+    # Figure 3: Best Accuracy vs. Configuration
+    plt.figure(figsize=(8, 6))
+    plt.plot(config_names, train_best_accuracies, marker='o', label='Train Accuracy')
+    plt.plot(config_names, test_best_accuracies, marker='o', label='Test Accuracy')
+    plt.xlabel("Configuration")
+    plt.ylabel("Best Accuracy")
+    plt.title("Best Accuracy vs. Configuration")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_directory, "best_accuracy.png"))
+    plt.close()
     
-    if show:
-        plt.show()
-    else:
-        plt.close()
-
+    # Figure 4: Step at which Best Accuracy is reached vs. Configuration
+    plt.figure(figsize=(8, 6))
+    plt.plot(config_names, train_accuracy_steps, marker='o', label='Train Accuracy Step')
+    plt.plot(config_names, test_accuracy_steps, marker='o', label='Test Accuracy Step')
+    plt.xlabel("Configuration")
+    plt.ylabel("Step of Best Accuracy")
+    plt.title("Best Accuracy Step vs. Configuration")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_directory, "best_accuracy_step.png"))
+    plt.close()

@@ -5,7 +5,7 @@ class Arguments:
     p: int = 31 # Must be a prime number if operator is "/"
     operator : str = "+" # ["+", "-", "*", "/"]
     r_train : float = .5
-    operation_orders : int = 2 # 2, 3 or [2, 3]
+    operation_orders : int = [2] # [2], [3] or [2, 3]
 
     # Model
     model: str = 'lstm' # [lstm, gpt]

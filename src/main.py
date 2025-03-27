@@ -5,16 +5,18 @@ from torch.utils.data import DataLoader
 
 import os
 import random
+import math
 
 from data import get_arithmetic_dataset
 from lstm import LSTMLM
 from gpt import GPT
 from train import train
 from checkpointing import get_all_checkpoints_per_trials
-from plotter import plot_configuration, plot_all
 from utils import seed_experiment
 from arguments import Arguments
 from schedulers import DummyScheduler
+from plotter import plot_metrics_across_configurations, plot_best_across_configurations
+from logzy import save_metrics, load_metrics
 
 import torch
 
@@ -27,25 +29,21 @@ def train_model(args):
     os.makedirs(checkpoint_path, exist_ok=True)
 
     # Data
-    if isinstance(args.operation_orders, int):
-        (train_dataset, valid_dataset), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, args.r_train, args.operation_orders, is_symmetric=False, shuffle=True, seed=args.seed)
-    else:
-        (dataset, _), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, 1.0, args.operation_orders, seed=args.seed)
-        vocabulary_size = len(tokenizer)
-        dataset_per_oders = {
-            2 : torch.utils.data.Subset(dataset,[i for i in range(len(dataset)) if dataset[i][2] == 3]), # a + b = r EOS PAD PAD
-            3 : torch.utils.data.Subset(dataset,[i for i in range(len(dataset)) if dataset[i][2] == 5]) # a + b + c = r EOS
-        }
-        train_dataset_2, valid_dataset_2 = torch.utils.data.random_split(dataset_per_oders[2], [args.r_train, 1-args.r_train])
-        train_dataset_3, valid_dataset_3 = torch.utils.data.random_split(dataset_per_oders[3], [args.r_train, 1-args.r_train])
-        train_dataset = torch.utils.data.ConcatDataset([train_dataset_2, train_dataset_3])
-        valid_dataset = torch.utils.data.ConcatDataset([valid_dataset_2, valid_dataset_3])
-        train_dataset = torch.utils.data.Subset(train_dataset, torch.randperm(len(train_dataset)))
-        valid_dataset = torch.utils.data.Subset(valid_dataset, torch.randperm(len(valid_dataset)))
+    (dataset, _), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(args.p, args.p, args.operator, 1.0, args.operation_orders, is_symmetric=False, shuffle=True, seed=args.seed)
+    
+    dataset_per_oders = {}
+    for op in args.operation_orders:
+        dataset_per_oders[op] = torch.utils.data.Subset(dataset,[i for i in range(len(dataset)) if dataset[i][2] == math.ceil(op/2)+op])
+        dataset_per_oders[op] = torch.utils.data.random_split(dataset_per_oders[op], [args.r_train, 1-args.r_train])
 
+    train_dataset = torch.utils.data.ConcatDataset([dataset_per_oders[op][0] for op in args.operation_orders])
     train_dataloader = DataLoader(train_dataset, batch_size=min(args.train_batch_size, len(train_dataset)), shuffle=True, num_workers=args.num_workers)
-    train_dataloader_for_eval = DataLoader(train_dataset, batch_size=min(args.eval_batch_size, len(train_dataset)), shuffle=False, num_workers=args.num_workers)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=min(args.eval_batch_size, len(valid_dataset)), shuffle=False, num_workers=args.num_workers)
+
+    eval_train_loaders = {}
+    eval_test_loaders = {}
+    for op in args.operation_orders:
+        eval_train_loaders[op] = DataLoader(dataset_per_oders[op][0], batch_size=min(args.eval_batch_size, len(dataset_per_oders[op][0])), shuffle=False, num_workers=args.num_workers)
+        eval_test_loaders[op] = DataLoader(dataset_per_oders[op][1], batch_size=min(args.eval_batch_size, len(dataset_per_oders[op][1])), shuffle=False, num_workers=args.num_workers)
 
     # Model
     vocabulary_size = len(tokenizer)
@@ -73,19 +71,12 @@ def train_model(args):
         print("=="*20)
         for k, v in vars(args).items(): print(k, ":", v)
         print("checkpoint_path:", checkpoint_path)
-        print("train_dataset_size:", train_dataset.tensors[0].shape[0])
-        print("valid_dataset_size:", train_dataset.tensors[0].shape[0])
+        print("dataset_size:", dataset.tensors[0].shape[0])
         print("=="*20)
 
     # Train    
-    all_metrics = train(
-        model,
-        train_dataloader, train_dataloader_for_eval, valid_dataloader,
-        optimizer, scheduler, args.device, 
-        args.exp_name, checkpoint_path, n_steps=args.n_steps,
-        eval_step=args.eval_step, save_step=args.save_step,
-        verbose=args.verbose
-    )
+    all_metrics = train(model, args, checkpoint_path, optimizer, scheduler,
+        train_dataloader, eval_train_loaders, eval_test_loaders)
     
     return all_metrics, checkpoint_path
 
@@ -96,34 +87,50 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
     # If rseeds > 0 then generate rseeds random seeds and concatenate them with seeds
     if rseeds > 0: seeds = seeds + [random.randint(0, 10000) for _ in range(rseeds)]
 
-    all_checkpoint_paths = []
-    all_metrics = []
     print(f"Training model {args.exp_name}")
+    run_paths = []
     for m, seed in enumerate(seeds):
         print(f"({m+1}/{len(seeds)}) Running training for seed {seed}")
         args.exp_id = m # Set the experiment id
         args.seed = seed # Set the seed
-        _, checkpoint_path = train_model(args)
-        all_checkpoint_paths.append(checkpoint_path)
-        
-    all_models_paths, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True, verbose=args.verbose)
-    # Plots for all runs of one configuration
-    save_path = os.path.join(args.log_dir, args.exp_name)
-    plot_configuration(all_metrics, save_path=f"{save_path}", mode="std")
+        _, run_path = train_model(args)
+        run_paths.append(run_path)
 
-    return all_models_paths, all_metrics
+    return run_paths
 
 if __name__ == "__main__":
-    args = Arguments()
-    args.log_dir = "logs/experiment1"
-    args.n_steps = 50
-    args.operation_orders = 2
-    models = ["lstm"]
-    results = {}
-    for model in models:
-        args.model = model
-        
-        args.exp_name = model
-        results[model], _ = train_models(args, [0])
+    experiment1 = Arguments()
+    experiment1.log_dir = "test"
+    experiment1.exp_name = 'test1'
+    experiment1.operation_orders = [2, 3]
+    experiment1.n_steps = 250
+    train_models(experiment1)
+    load_metrics("test/test1/0/test1_metrics.pth")
+    
 
-    plot_all(results, save_path=args.log_dir, mode="std")
+# if __name__ == "__main__":
+#     experiment2 = Arguments()
+#     experiment2.verbose = False
+
+#     experiment = experiment2
+#     log_dir = "logs/experiment2"
+#     configurations = [r/10 for r in range(1, 10)]
+#     labels = [f"r_{r}" for r in configurations]
+#     models = ['lstm', 'gpt']
+
+#     results = {}
+#     for model in models:
+#         results[model] = {}
+#         for label, configuration in zip(labels, configurations):
+#             exp_name = f"{model}_{label}"
+#             experiment.log_dir = os.path.join(log_dir, model)
+#             checkpoints = []
+#             for m, seed in enumerate([0, 42]):
+#                 checkpoint_path = os.path.join(log_dir, model, exp_name, str(m))
+#                 checkpoints.append(checkpoint_path)
+            
+#             models_path, metrics = get_all_checkpoints_per_trials(checkpoints, exp_name, just_files=True, verbose=experiment.verbose)
+#             results[model][label] = metrics
+        
+#         plot_metrics_across_configurations(results[model], experiment.log_dir, "std")
+#         plot_best_across_configurations(results[model], experiment.log_dir)

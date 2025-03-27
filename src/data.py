@@ -66,7 +66,7 @@ def get_arithmetic_dataset(
     q: int,
     operator: str,
     r_train: float,
-    operation_orders: Union[int, List[int]] = 2,
+    operation_orders: Union[int, List[int]] = [2],
     is_symmetric: bool = False,
     shuffle: bool = True,
     seed: int = 42
@@ -97,10 +97,6 @@ def get_arithmetic_dataset(
     assert p > 0 and q > 0, "p and q must be positive integers."
     assert operator in ["+", "-", "*", "/"], "Invalid operator. Must be one of '+', '-', '*', '/'."
     assert 0 < r_train <= 1.0, "r_train must be in the range (0, 1]."
-
-    # Ensure operation_orders is a list
-    if isinstance(operation_orders, int):
-        operation_orders = [operation_orders]
 
     assert all(o in [2, 3] for o in operation_orders), "operation_orders must be 2, 3 or [2, 3]."
 

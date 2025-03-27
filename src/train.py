@@ -78,13 +78,13 @@ def run_evaluation(all_metrics, model, train_loaders, test_loaders, device, step
     for index_op, op in enumerate(train_loaders):
         loss, acc, l2_norm = evaluate(model, train_loaders[op], device)
         all_metrics['train']['loss'][index_op].append(loss)
-        all_metrics['train']['acc'][index_op].append(acc.item())
+        all_metrics['train']['accuracy'][index_op].append(acc.item())
         all_metrics['train']['l2_norm'][index_op].append(l2_norm)
 
     for index_op, op in enumerate(test_loaders):
-        loss, acc, l2_norm = evaluate(model, train_loaders[op], device)
+        loss, acc, l2_norm = evaluate(model, test_loaders[op], device)
         all_metrics['test']['loss'][index_op].append(loss)
-        all_metrics['test']['acc'][index_op].append(acc.item())
+        all_metrics['test']['accuracy'][index_op].append(acc.item())
         all_metrics['test']['l2_norm'][index_op].append(l2_norm)
     
 def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_loaders, eval_test_loaders):   
@@ -99,7 +99,7 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
     # Lambda function to initialize the metrics array.
     init_metrics = lambda: {
         'loss': [[]] * len(args.operation_orders),
-        'acc': [[]] * len(args.operation_orders),
+        'accuracy': [[]] * len(args.operation_orders),
         'l2_norm': [[]] * len(args.operation_orders)
     }
 
@@ -110,7 +110,7 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
     current_lr = scheduler.optimizer.param_groups[0]["lr"]
     cur_step = 1
     # Store the last evaluation metrics for each set
-    cur_metrics = {m: {k: 0 for k in ['acc', 'loss']} for m in ['train', 'test']}
+    cur_metrics = {m: {k: 0 for k in ['accuracy', 'loss']} for m in ['train', 'test']}
     # Lambda functions to compute the mean of a metric over all operation orders for one evaluation set.
     mean = lambda metrics: np.mean([metrics[op][-1] for op in range(len(args.operation_orders))])
 
@@ -179,6 +179,6 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
     save_checkpoint(model, optimizer, f"{logdir}/{args.exp_name}_state.pth", verbose=args.verbose)
     
     run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, cur_step, epoch)
-    save_metrics(all_metrics, f"{logdir}/{args.exp_name}_metrics.pth", verbose=args.verbose)
+    save_metrics(all_metrics, f"{logdir}/{args.exp_name}_metrics.json", verbose=args.verbose)
 
     return all_metrics

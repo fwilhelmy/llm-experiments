@@ -11,12 +11,11 @@ from data import get_arithmetic_dataset
 from lstm import LSTMLM
 from gpt import GPT
 from train import train
-from checkpointing import get_all_checkpoints_per_trials
 from utils import seed_experiment
 from arguments import Arguments
 from schedulers import DummyScheduler
-from plotter import plot_metrics_across_configurations, plot_best_across_configurations
-from logzy import save_metrics, load_metrics
+from logzy import load_experiment
+from plots import plot_all_configurations, plot_configuration_metrics, plot_comparative_best_metrics
 
 import torch
 
@@ -99,38 +98,15 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
     return run_paths
 
 if __name__ == "__main__":
-    experiment1 = Arguments()
-    experiment1.log_dir = "test"
-    experiment1.exp_name = 'test1'
-    experiment1.operation_orders = [2, 3]
-    experiment1.n_steps = 250
-    train_models(experiment1)
-    load_metrics("test/test1/0/test1_metrics.pth")
-    
-
-# if __name__ == "__main__":
-#     experiment2 = Arguments()
-#     experiment2.verbose = False
-
-#     experiment = experiment2
-#     log_dir = "logs/experiment2"
-#     configurations = [r/10 for r in range(1, 10)]
-#     labels = [f"r_{r}" for r in configurations]
-#     models = ['lstm', 'gpt']
-
-#     results = {}
-#     for model in models:
-#         results[model] = {}
-#         for label, configuration in zip(labels, configurations):
-#             exp_name = f"{model}_{label}"
-#             experiment.log_dir = os.path.join(log_dir, model)
-#             checkpoints = []
-#             for m, seed in enumerate([0, 42]):
-#                 checkpoint_path = os.path.join(log_dir, model, exp_name, str(m))
-#                 checkpoints.append(checkpoint_path)
-            
-#             models_path, metrics = get_all_checkpoints_per_trials(checkpoints, exp_name, just_files=True, verbose=experiment.verbose)
-#             results[model][label] = metrics
-        
-#         plot_metrics_across_configurations(results[model], experiment.log_dir, "std")
-#         plot_best_across_configurations(results[model], experiment.log_dir)
+    logdir = "logs/new/experiment2"
+    all_metrics = load_experiment(logdir, verbose=False)
+    for model_name, model_metrics in all_metrics.items():
+        model_path = os.path.join(logdir, model_name)
+        configs_label = []
+        for config_name, config_metrics in model_metrics.items():
+            # Extracting r value from config name
+            configs_label.append(float(config_name.split("_")[-1]))
+            config_path = os.path.join(model_path, config_name)
+            plot_configuration_metrics(config_metrics, config_path, "std")
+        plot_all_configurations(model_metrics, model_path, "std", config_labels=configs_label)
+        plot_comparative_best_metrics(model_metrics, model_path, config_title="Configuration (r_train)", config_labels=configs_label)

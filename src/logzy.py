@@ -1,14 +1,28 @@
 import os
 import json
 import numpy as np
+import torch
+
+MODES = ['train', 'test']
+
+def save_checkpoint(model, optimizer, filepath, verbose=True):
+    """Save model and optimizer states to a file."""
+    checkpoint = {
+        'model_state': model.state_dict(),
+        'optimizer_state': optimizer.state_dict()
+    }
+    torch.save(checkpoint, filepath)
+    if verbose: print(f"Checkpoint saved to {filepath}")
+
+def load_checkpoint(filepath, model, optimizer, map_location='cpu', verbose=True):
+    """Load model and optimizer states from a file and update them."""
+    checkpoint = torch.load(filepath, map_location=map_location)
+    model.load_state_dict(checkpoint['model_state'])
+    optimizer.load_state_dict(checkpoint['optimizer_state'])
+    if verbose: print(f"Checkpoint loaded from {filepath}")
+    return model, optimizer
 
 def save_metrics(metrics, filename, verbose=True):
-    # Convert numpy arrays to lists for serialization
-    for mode in ['test', 'train']:
-        if mode not in metrics: continue
-        for metric, array in metrics[mode].items():
-            metrics[mode][metric] = array.tolist()
-
     with open(filename, 'w') as f: json.dump(metrics, f, indent=4)
     if verbose: print(f"Metrics saved to {filename}")
 
@@ -17,7 +31,7 @@ def load_metrics(filepath):
     with open(filepath, 'r') as f: data = json.load(f)
 
     # Convert lists to numpy arrays
-    for mode in ['train', 'test']:
+    for mode in MODES:
         if mode not in data: continue
         for metric, array in data[mode].items():
             data[mode][metric] = np.array(array)
@@ -55,7 +69,7 @@ def load_configuration(config_path, config_name):
     })
     
     # Evaluation metrics
-    for mode in ['train', 'test']:
+    for mode in MODES:
         merged[mode] = {}
         for metric_name in runs_metrics[0][mode]:
             # Stack the arrays along the first axis
@@ -81,8 +95,25 @@ def load_experiment(experiment_path, has_configs=True, verbose=True):
             if verbose: print(f"Loaded model {model_name} metrics")
     return metrics
 
+# Use "min" for loss (lower is better) or "max" for accuracy
+def to_best_metrics(metrics, mode='max'):
+    best_fn = np.argmax if mode == 'max' else np.argmin
+    best_idx = best_fn(metrics)
+    return (best_idx, metrics[best_idx])
+
 from pprint import pprint
 if __name__ == '__main__':
     experiment_dir = "logs/experiment1"
     metrics = load_experiment(experiment_dir, has_configs=False)
     pprint(metrics, depth=2)
+
+    lstm_train_metrics = metrics['lstm']['train']['accuracy']
+    mean_per_op = np.mean(lstm_train_metrics, axis=0)
+    std_per_op  = np.std(lstm_train_metrics, axis=0)
+    mean_overall = np.mean(lstm_train_metrics, axis=(0, 1))
+    std_overall  = np.std(lstm_train_metrics, axis=(0, 1))
+
+    best_idx = np.unravel_index(np.argmax(lstm_train_metrics), lstm_train_metrics.shape)
+    best_acc = lstm_train_metrics[best_idx]
+    best_eval = best_idx[2]
+    print(f"Best training accuracy: {best_acc:.2f} at evaluation {best_eval}")

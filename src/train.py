@@ -75,18 +75,17 @@ def run_evaluation(all_metrics, model, train_loaders, test_loaders, device, step
     all_metrics["steps"].append(step)
     all_metrics["epochs"].append(epoch)
 
-    index_step = len(all_metrics["steps"]) - 1
     for index_op, op in enumerate(train_loaders):
         loss, acc, l2_norm = evaluate(model, train_loaders[op], device)
-        all_metrics['train']['loss'][index_op, index_step] = loss
-        all_metrics['train']['acc'][index_op, index_step] = acc.item()
-        all_metrics['train']['l2_norm'][index_op, index_step] = l2_norm
+        all_metrics['train']['loss'][index_op].append(loss)
+        all_metrics['train']['acc'][index_op].append(acc.item())
+        all_metrics['train']['l2_norm'][index_op].append(l2_norm)
 
     for index_op, op in enumerate(test_loaders):
         loss, acc, l2_norm = evaluate(model, train_loaders[op], device)
-        all_metrics['test']['loss'][index_op, index_step] = loss
-        all_metrics['test']['acc'][index_op, index_step] = acc.item()
-        all_metrics['test']['l2_norm'][index_op, index_step] = l2_norm
+        all_metrics['test']['loss'][index_op].append(loss)
+        all_metrics['test']['acc'][index_op].append(acc.item())
+        all_metrics['test']['l2_norm'][index_op].append(l2_norm)
     
 def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_loaders, eval_test_loaders):   
     # Create checkpoint directory if it doesn't exist.
@@ -97,14 +96,11 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
     
     if args.verbose: print(f"Number of training epochs ({n_epochs}) & steps ({n_epochs * len(train_loader)})")
 
-    # Lambda functions to compute the mean of a metric over all operation orders for one evaluation set.
-    mean = lambda metrics: np.mean([metrics[op][len(all_metrics['steps']) - 1] for op in range(len(args.operation_orders))])
     # Lambda function to initialize the metrics array.
-    n_evals = n_epochs * len(train_loader) // args.eval_step + 3
     init_metrics = lambda: {
-        'loss': np.empty((len(args.operation_orders), n_evals)),
-        'acc': np.empty((len(args.operation_orders), n_evals)),
-        'l2_norm': np.empty((len(args.operation_orders), n_evals))
+        'loss': [[]] * len(args.operation_orders),
+        'acc': [[]] * len(args.operation_orders),
+        'l2_norm': [[]] * len(args.operation_orders)
     }
 
     all_metrics = {'train': init_metrics(), 'test': init_metrics(), 'steps': [], 'epochs': [], 'operation_orders': args.operation_orders}
@@ -113,7 +109,10 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
 
     current_lr = scheduler.optimizer.param_groups[0]["lr"]
     cur_step = 1
-    cur_metrics = {'train': {}, 'test': {}} # Store the last evaluation metrics for each set
+    # Store the last evaluation metrics for each set
+    cur_metrics = {m: {k: 0 for k in ['acc', 'loss']} for m in ['train', 'test']}
+    # Lambda functions to compute the mean of a metric over all operation orders for one evaluation set.
+    mean = lambda metrics: np.mean([metrics[op][-1] for op in range(len(args.operation_orders))])
 
     # Early stopping configuration
     # early_stopping = EarlyStopper(verbose=verbose)
@@ -136,11 +135,19 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
             optimizer.step()
               
             # Evaluate model on training and test sets periodically.
-            if cur_step == 1 or (cur_step % args.eval_step == 0 and cur_step != args.n_steps):
+            eval_start = cur_step <= args.eval_start
+            eval_step = cur_step % args.eval_step == 0 and cur_step != args.n_steps
+            if eval_start or eval_step:
                 run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, cur_step, epoch)
-                cur_metrics = {k: {l: mean(all_metrics[k][l]) for l in ['acc', 'loss']} for k in ['train', 'test']}
 
-                if args.verbose:
+                cur_metrics = {
+                    m: {
+                        k: mean(all_metrics[m][k])
+                        for k in cur_metrics[m]
+                    } for m in cur_metrics
+                }
+
+                if not eval_start and args.verbose:
                     to_print = "\n" 
                     to_print += " | ".join(f"Train {k} : {v:.5f}" for k, v in cur_metrics['train'].items())
                     to_print += " || "
@@ -172,8 +179,6 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
     save_checkpoint(model, optimizer, f"{logdir}/{args.exp_name}_state.pth", verbose=args.verbose)
     
     run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, cur_step, epoch)
-    all_metrics['train'] = {k: np.array(v) for k, v in all_metrics['train'].items()}
-    all_metrics['test'] = {k: np.array(v) for k, v in all_metrics['test'].items()}
     save_metrics(all_metrics, f"{logdir}/{args.exp_name}_metrics.pth", verbose=args.verbose)
 
     return all_metrics

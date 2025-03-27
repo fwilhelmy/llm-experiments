@@ -26,6 +26,7 @@ class Arguments:
 
     # Training
     n_steps : int = 10**4 + 1
+    eval_start: int = 0
     eval_step: int = 100
     save_step: int = 1000
 

@@ -52,6 +52,7 @@ def evaluate(model, loader, device):
     model.eval()
     acc = 0
     loss = 0
+    l2_norm = 0
     n = 0
 
     for batch in loader:
@@ -63,55 +64,66 @@ def evaluate(model, loader, device):
         loss += batch_loss.item() * batch_x.shape[0]
         acc += batch_acc * batch_x.shape[0]
 
-        l2_norm = 0.0
         for p in model.parameters():
             if p.requires_grad:
                 l2_norm += p.norm(2).item() ** 2  # Square the norm for each parameter tensor
         l2_norm = l2_norm ** 0.5  # Take the square root to get the overall ℓ₂ norm
 
-    return {"loss": loss / n, "accuracy": acc / n, "l2_norm": l2_norm}
+    return loss / n, acc / n, l2_norm
 
-def run_evaluation(metrics, model, train_loader, test_loader, device, step = 0, epoch = 0):
-    # Evaluate model on training and test sets before training starts.
-    train_statistics = evaluate(model, train_loader, device)
-    for k, v in train_statistics.items(): metrics["train"][k].append(v)
+def run_evaluation(all_metrics, model, train_loaders, test_loaders, device, step, epoch):
+    all_metrics["steps"].append(step)
+    all_metrics["epochs"].append(epoch)
 
-    test_statistics = evaluate(model, test_loader, device)
-    for k, v in test_statistics.items(): metrics["test"][k].append(v)
+    index_step = len(all_metrics["steps"]) - 1
+    for index_op, op in enumerate(train_loaders):
+        loss, acc, l2_norm = evaluate(model, train_loaders[op], device)
+        all_metrics['train']['loss'][index_op, index_step] = loss
+        all_metrics['train']['acc'][index_op, index_step] = acc.item()
+        all_metrics['train']['l2_norm'][index_op, index_step] = l2_norm
 
-    metrics["all_steps"].append(step)
-    metrics["steps_epoch"][step] = epoch
-
-    return train_statistics, test_statistics
+    for index_op, op in enumerate(test_loaders):
+        loss, acc, l2_norm = evaluate(model, train_loaders[op], device)
+        all_metrics['test']['loss'][index_op, index_step] = loss
+        all_metrics['test']['acc'][index_op, index_step] = acc.item()
+        all_metrics['test']['l2_norm'][index_op, index_step] = l2_norm
     
-def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, scheduler, device, exp_name: str, checkpoint_path: str, n_steps: int, eval_step: int = 1000, save_step: int = 1000, verbose=True):
+def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_loaders, eval_test_loaders):   
     # Create checkpoint directory if it doesn't exist.
-    os.makedirs(checkpoint_path, exist_ok=True)
+    os.makedirs(logdir, exist_ok=True)
 
     # Determine total epochs based on n_steps and the number of batches per epoch.
-    n_epochs = (n_steps + len(train_loader) - 1) // len(train_loader)
+    n_epochs = (args.n_steps + len(train_loader) - 1) // len(train_loader)
     
-    if verbose: print(f"Number of training epochs ({n_epochs}) & steps ({n_epochs * len(train_loader)})")
+    if args.verbose: print(f"Number of training epochs ({n_epochs}) & steps ({n_epochs * len(train_loader)})")
 
-    all_metrics = defaultdict(lambda: [])
-    all_metrics["train"] = defaultdict(lambda: [])
-    all_metrics["test"] = defaultdict(lambda: [])
-    all_metrics["steps_epoch"] = {}
+    # Lambda functions to compute the mean of a metric over all operation orders for one evaluation set.
+    mean = lambda metrics: np.mean([metrics[op][len(all_metrics['steps']) - 1] for op in range(len(args.operation_orders))])
+    # Lambda function to initialize the metrics array.
+    n_evals = n_epochs * len(train_loader) // args.eval_step + 3
+    init_metrics = lambda: {
+        'loss': np.empty((len(args.operation_orders), n_evals)),
+        'acc': np.empty((len(args.operation_orders), n_evals)),
+        'l2_norm': np.empty((len(args.operation_orders), n_evals))
+    }
 
-    run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device)
+    all_metrics = {'train': init_metrics(), 'test': init_metrics(), 'steps': [], 'epochs': [], 'operation_orders': args.operation_orders}
+
+    run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, 0, 0)
 
     current_lr = scheduler.optimizer.param_groups[0]["lr"]
     cur_step = 1
+    cur_metrics = {'train': {}, 'test': {}} # Store the last evaluation metrics for each set
 
     # Early stopping configuration
     # early_stopping = EarlyStopper(verbose=verbose)
 
     # Main training loop (per epoch)
-    pbar = tqdm(range(1, n_epochs+1), desc="Training", total=n_epochs, bar_format="{desc}: {percentage:3.0f}% |{bar}| {n_fmt}/{total_fmt} [{rate_fmt}{postfix}]")
+    pbar = tqdm(range(1, n_epochs+1), desc="Training", total=n_epochs)
     for epoch in pbar:
         for i, batch in enumerate(train_loader):
             batch_x, batch_y, eq_positions, mask = batch # (B, S), (B, S), (B,), (B, S)
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            batch_x, batch_y = batch_x.to(args.device), batch_y.to(args.device)
 
             optimizer.zero_grad(set_to_none=True)
             model.train()
@@ -124,22 +136,25 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
             optimizer.step()
               
             # Evaluate model on training and test sets periodically.
-            if cur_step == 1 or (cur_step % eval_step == 0 and cur_step != n_steps):
-                train_statistics, test_statistics = run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device, cur_step, epoch)
+            if cur_step == 1 or (cur_step % args.eval_step == 0 and cur_step != args.n_steps):
+                run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, cur_step, epoch)
+                cur_metrics = {k: {l: mean(all_metrics[k][l]) for l in ['acc', 'loss']} for k in ['train', 'test']}
 
-                if verbose:
-                    to_print = "\n" + " | ".join(f"Train {k} : {v:.5f}" for k, v in train_statistics.items())
-                    to_print += " | " + " | ".join(f"Test {k} : {v:.5f}" for k, v in test_statistics.items())
-                    to_print += f" | lr = {current_lr:.5f}"
+                if args.verbose:
+                    to_print = "\n" 
+                    to_print += " | ".join(f"Train {k} : {v:.5f}" for k, v in cur_metrics['train'].items())
+                    to_print += " || "
+                    to_print += " | ".join(f"Test {k} : {v:.5f}" for k, v in cur_metrics['test'].items())
+                    to_print += f" || lr = {current_lr:.5f}"
                     print(to_print)
 
             # Save model statistics & checkpoint periodically.
-            if cur_step == 1 or (cur_step % save_step == 0 and cur_step != n_steps):
-                file_name = f"{exp_name}_state_step={cur_step}_acc={test_statistics['accuracy']}_loss={test_statistics['loss']}.pth"
-                save_checkpoint(model, optimizer, os.path.join(checkpoint_path, file_name), verbose=verbose)
+            if cur_step == 1 or (cur_step % args.save_step == 0 and cur_step != args.n_steps):
+                file_name = f"{args.exp_name}_state_step={cur_step}_acc={cur_metrics['test']['acc']:.5f}_loss={cur_metrics['test']['loss']:.5f}.pth"
+                save_checkpoint(model, optimizer, os.path.join(logdir, file_name), verbose=args.verbose)
 
             # update tqdm progress bar
-            pbar.set_postfix({'step': cur_step, 'loss': f"{loss.item():.5f}", 'lr': f"{current_lr:.3f}"})
+            pbar.set_postfix({'step': cur_step, 'loss': f"{loss:.5f}", 'lr': f"{current_lr:.3f}"})
 
             cur_step += 1
 
@@ -151,13 +166,14 @@ def train(model, train_loader, train_loader_for_eval, test_loader, optimizer, sc
 
     # Compute the global average step time.
     total_time = pbar.format_dict["elapsed"] # total seconds for all epochs
-    step_time_avg = total_time / n_steps
-    all_metrics["performance"] = {"total_elapsed": total_time, "step_time_avg": step_time_avg}
+    all_metrics["total_time"], all_metrics["avg_step_time"] = total_time, total_time / args.n_steps
 
     # Save final model state after training.
-    save_checkpoint(model, optimizer, f"{checkpoint_path}/{exp_name}_state.pth", verbose=verbose)
+    save_checkpoint(model, optimizer, f"{logdir}/{args.exp_name}_state.pth", verbose=args.verbose)
     
-    run_evaluation(all_metrics, model, train_loader_for_eval, test_loader, device, cur_step-1, epoch)
-    save_metrics(all_metrics, f"{checkpoint_path}/{exp_name}_metrics.pth", verbose=verbose)
+    run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, cur_step, epoch)
+    all_metrics['train'] = {k: np.array(v) for k, v in all_metrics['train'].items()}
+    all_metrics['test'] = {k: np.array(v) for k, v in all_metrics['test'].items()}
+    save_metrics(all_metrics, f"{logdir}/{args.exp_name}_metrics.pth", verbose=args.verbose)
 
     return all_metrics

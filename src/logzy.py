@@ -50,6 +50,7 @@ def load_configuration(config_path, config_name):
     for run_path in run_paths:
         metrics_file = f"{config_name}_metrics.json"
         metrics_path = os.path.join(run_path, metrics_file)
+        if not os.path.exists(metrics_path): continue
         metrics = load_metrics(metrics_path)
         runs_metrics.append(metrics)
     if not runs_metrics: raise ValueError(f"No metrics found in any run within {config_path}")
@@ -88,7 +89,11 @@ def load_experiment(experiment_path, has_configs=True, verbose=True):
             for config_name in os.listdir(model_path):
                 config_path = os.path.join(model_path, config_name)
                 if not os.path.isdir(config_path): continue
-                metrics[model_name][config_name] = load_configuration(config_path, config_name)
+                try:
+                    metrics[model_name][config_name] = load_configuration(config_path, config_name)
+                except Exception as e:
+                    if verbose: print("Error loading configuration metrics:", e)
+
                 if verbose: print(f"Loaded configuration {config_name} metrics")
         else:
             metrics[model_name] = load_configuration(model_path, model_name)

@@ -98,9 +98,9 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
 
     # Lambda function to initialize the metrics array.
     init_metrics = lambda: {
-        'loss': [[]] * len(args.operation_orders),
-        'accuracy': [[]] * len(args.operation_orders),
-        'l2_norm': [[]] * len(args.operation_orders)
+        'loss': [[] for _ in range(len(args.operation_orders))],
+        'accuracy': [[] for _ in range(len(args.operation_orders))],
+        'l2_norm': [[] for _ in range(len(args.operation_orders))]
     }
 
     all_metrics = {'train': init_metrics(), 'test': init_metrics(), 'steps': [], 'epochs': [], 'operation_orders': args.operation_orders}
@@ -157,7 +157,7 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
 
             # Save model statistics & checkpoint periodically.
             if cur_step == 1 or (cur_step % args.save_step == 0 and cur_step != args.n_steps):
-                file_name = f"{args.exp_name}_state_step={cur_step}_acc={cur_metrics['test']['acc']:.5f}_loss={cur_metrics['test']['loss']:.5f}.pth"
+                file_name = f"{args.exp_name}_state_step={cur_step}_acc={cur_metrics['test']['accuracy']:.5f}_loss={cur_metrics['test']['loss']:.5f}.pth"
                 save_checkpoint(model, optimizer, os.path.join(logdir, file_name), verbose=args.verbose)
 
             # update tqdm progress bar

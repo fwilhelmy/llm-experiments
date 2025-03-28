@@ -15,7 +15,7 @@ from utils import seed_experiment
 from arguments import Arguments
 from schedulers import DummyScheduler
 from logzy import load_experiment
-from plots import plot_all_configurations, plot_configuration_metrics, plot_comparative_best_metrics
+from plots import plot_all_configurations, plot_configuration_metrics, plot_comparative_best_metrics, plot_all_configurations_grouped
 
 import torch
 
@@ -96,17 +96,3 @@ def train_models(args, seeds:list=[0, 42], rseeds:int=0):
         run_paths.append(run_path)
 
     return run_paths
-
-if __name__ == "__main__":
-    logdir = "logs/new/experiment2"
-    all_metrics = load_experiment(logdir, verbose=False)
-    for model_name, model_metrics in all_metrics.items():
-        model_path = os.path.join(logdir, model_name)
-        configs_label = []
-        for config_name, config_metrics in model_metrics.items():
-            # Extracting r value from config name
-            configs_label.append(float(config_name.split("_")[-1]))
-            config_path = os.path.join(model_path, config_name)
-            plot_configuration_metrics(config_metrics, config_path, "std")
-        plot_all_configurations(model_metrics, model_path, "std", config_labels=configs_label)
-        plot_comparative_best_metrics(model_metrics, model_path, config_title="Configuration (r_train)", config_labels=configs_label)

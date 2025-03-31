@@ -210,7 +210,7 @@ def extract_config_best_metrics(all_metrics, metrics_to_extract=['loss', 'accura
 #    train_x_scale=(35,0.2,10,300), x_ticks=None, loss_y_scale=False)
 # -----------------------------
 
-def plot_config_loss_accs(data, save_directory, file_name,
+def plot_config_loss_accs(data, save_directory, file_name=None,
                           show_std=True, train_x_scale=False, x_ticks=None,
                           loss_y_scale=False):
     """
@@ -243,18 +243,18 @@ def plot_config_loss_accs(data, save_directory, file_name,
         plt.ylabel(metric.capitalize())
         if loss_y_scale and metric == "loss":
             plt.yscale("log")
-        if train_x_scale is not None:
-            m, c, x_break1, x_break2 = train_x_scale
-            plt.gca().set_xscale('custompiecewise', m=m, c=c, x_break1=x_break1, x_break2=x_break2)
+        if train_x_scale:
+            plt.xscale('log')
         if x_ticks is not None:
             plt.xticks(x_ticks)
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
-        plt.savefig(os.path.join(save_directory, f"{metric}_{file_name}"))
+        file_name = f"{metric}_{file_name}.png" if file_name else f"{metric}.png"
+        plt.savefig(os.path.join(save_directory, file_name))
         plt.close()
 
-def plot_config_ops(data, save_directory, file_name,
+def plot_config_ops(data, save_directory, file_name=None,
                     show_std=True, train_x_scale=False, x_ticks=None,
                     loss_y_scale=False):
     """
@@ -350,20 +350,20 @@ def plot_config_ops(data, save_directory, file_name,
     axs[0, 1].set_title("Test", fontweight='bold')
     
     # Apply custom train x-scale to left column subplots.
-    if train_x_scale is not None:
-        m, c, x_break1, x_break2 = train_x_scale
+    if train_x_scale:
         for ax in [axs[0, 0], axs[1, 0]]:
-            ax.set_xscale('custompiecewise', m=m, c=c, x_break1=x_break1, x_break2=x_break2)
+            ax.set_xscale('log')
     
     if x_ticks is not None:
         for ax in axs.flat:
             ax.set_xticks(x_ticks)
     
     plt.tight_layout()
+    file_name = f"{file_name}.png" if file_name else f"operation_orders.png"
     plt.savefig(os.path.join(save_directory, file_name))
     plt.close()
 
-def plot_all_configs_metrics(data, save_directory, file_name,
+def plot_all_configs_metrics(data, save_directory, file_name=None,
                              show_std=True, merge_ops=True,
                              figures=[[('train','loss'), ('test','loss')],
                                       [('train','accuracy'), ('test','accuracy')]],
@@ -423,8 +423,6 @@ def plot_all_configs_metrics(data, save_directory, file_name,
         for j in range(n_cols):
             ax = axs[i, j]
             mode, metric = figures[i][j]
-            if mode == 'train':
-                ax.set_xscale("log")
             if mode == 'train' and train_x_scale:
                 ax.set_xscale("log")
             if metric == 'loss' and loss_y_scale:
@@ -445,10 +443,11 @@ def plot_all_configs_metrics(data, save_directory, file_name,
 
     plt.get_current_fig_manager().window.state('zoomed')
     plt.tight_layout()
+    file_name = f"{file_name}.png" if file_name else "all_configs.png"
     plt.savefig(os.path.join(save_directory, file_name))
     plt.close()
 
-def plot_all_configs_best_metrics(data, save_directory, file_name,
+def plot_all_configs_best_metrics(data, save_directory, file_name=None,
                                   show_std=True, x_label_title="Configuration",
                                   x_ticks=None, loss_y_scale=False):
     """
@@ -514,6 +513,7 @@ def plot_all_configs_best_metrics(data, save_directory, file_name,
     ax2.grid(True)
     fig.align_ylabels([ax1, ax2])
     plt.tight_layout()
+    file_name = f"{file_name}_loss.png" if file_name else f"comparative_best_loss.png"
     plt.savefig(os.path.join(save_directory, file_name))
     plt.close()
     
@@ -554,5 +554,6 @@ def plot_all_configs_best_metrics(data, save_directory, file_name,
     ax2.grid(True)
     fig.align_ylabels([ax1, ax2])
     plt.tight_layout()
-    plt.savefig(os.path.join(save_directory, "comparative_best_accuracy.png"))
+    file_name = f"{file_name}_accuracy.png" if file_name else f"comparative_best_accuracy.png"
+    plt.savefig(os.path.join(save_directory, file_name))
     plt.close()

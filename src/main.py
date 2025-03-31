@@ -15,7 +15,6 @@ from utils import seed_experiment
 from arguments import Arguments
 from schedulers import DummyScheduler
 from logzy import load_experiment
-from plots import plot_all_configurations, plot_configuration_metrics, plot_comparative_best_metrics, plot_all_configurations_grouped
 
 import torch
 

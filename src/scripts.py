@@ -1,8 +1,3 @@
-#import torch.nn.functional as F
-import torch
-import torch.optim as optim
-from torch.utils.data import DataLoader
-
 import os
 import random
 import math
@@ -16,76 +11,151 @@ from arguments import Arguments
 from schedulers import DummyScheduler
 from logzy import load_experiment
 from plots import *
+from itertools import groupby
+
+default_train_scale = (35, 0.2, 10, 300)
+default_figures = [(m, k) for m in ['test', 'train'] for k in ['loss', 'accuracy']]
 
 def plot_exp2():
     logdir = "logs/experiment2"
     all_metrics = load_experiment(logdir, verbose=False)
     for model_name, model_metrics in all_metrics.items():
         model_path = os.path.join(logdir, model_name)
-        configs_label = []
         for config_name, config_metrics in model_metrics.items():
-            # Extracting r value from config name
-            configs_label.append(float(config_name.split("_")[-1]))
+            r = float(config_name.split("_")[-1])
+            config_metrics['sorting_key'] = r
+            config_metrics['label'] = f"r={r}"
             config_path = os.path.join(model_path, config_name)
-            plot_configuration_metrics(config_metrics, config_path, "std")
-        
-        plot_all_configurations(model_metrics, model_path, "std", config_labels=configs_label, symlog=True)
-        plot_comparative_best_metrics(model_metrics, model_path, config_title="Configuration (r_train)", config_labels=configs_label)
+
+            plot_config_loss_accs(config_metrics, config_path,
+                                  file_name="single_config.png",
+                                  loss_y_scale=False)
+            
+        # Sort config labels for consistent ordering in plots
+        sorting_key = lambda item: item[1]['sorting_key']
+        sorted_model_metrics = dict(sorted(model_metrics.items(), key=sorting_key))
+
+        plot_all_configs_metrics(sorted_model_metrics, model_path,
+                                 file_name="all_configs.png",
+                                 loss_y_scale=False)
+        plot_all_configs_metrics(sorted_model_metrics, model_path,
+                                figures=[[('train', 'accuracy'), ('test', 'accuracy')]],
+                                axis_labels=[['Train', 'Test'], ['Accuracy']],
+                                file_name="only_accs.png",
+                                loss_y_scale=False)
+        plot_all_configs_best_metrics(sorted_model_metrics, model_path,
+                                      file_name="comparative_best_metrics.png",
+                                      x_label_title="Configuration (r_train)",
+                                      loss_y_scale=True)
+
 
 def plot_exp3():
     logdir = "logs/experiment3"
+    # For experiment 3, the metrics have no configuration keys.
     all_metrics = load_experiment(logdir, has_configs=False, verbose=False)
     for model_name, model_metrics in all_metrics.items():
+        model_metrics['label'] = model_name
         model_path = os.path.join(logdir, model_name)
-        plot_configuration_metrics(model_metrics, model_path, "std")
-        plot_exp3_ops_combined(model_metrics, model_path)
-    plot_all_configurations(all_metrics, logdir, "std")
+        
+        # Plot a single configuration.
+        plot_config_loss_accs(model_metrics, model_path,
+                              file_name="single_config_metrics.png",
+                              loss_y_scale=True)
+        
+        plot_config_ops(model_metrics, model_path,
+                          file_name="single_config_ops.png",
+                          loss_y_scale=True)
+        
+    # Plot all configurations.
+    plot_all_configs_metrics(all_metrics, logdir,
+                             file_name="all_configs.png",
+                             loss_y_scale=True)
 
 def plot_exp4():
     logdir = "logs/experiment4"
     all_metrics = load_experiment(logdir, verbose=False)
     for model_name, model_metrics in all_metrics.items():
         model_path = os.path.join(logdir, model_name)
-        configs_label = []
-        formated_metrics = {}
         for config_name, config_metrics in model_metrics.items():
             config_specs = config_name.split("_")
             L, d = int(config_specs[2]), int(config_specs[4])
-            if L not in formated_metrics: formated_metrics[L] = {}
-            formated_metrics[L][d] = config_metrics
-            configs_label.append(f"L={L}, d={d}")
-            
+            config_metrics['sorting_key'] = (L, d)
+            config_metrics['label'] = f"L={L}, d={d}"
             config_path = os.path.join(model_path, config_name)
-            plot_configuration_metrics(config_metrics, config_path, "std")
+            plot_config_loss_accs(config_metrics, config_path,
+                                  file_name="single_config.png",
+                                  loss_y_scale=True)
         
-        for L, d_metrics in formated_metrics.items():
-            # sort the d_metrics by the key
-            d_metrics = dict(sorted(d_metrics.items(), key=lambda item: int(item[0])))
-            plot_all_configurations_grouped(d_metrics, os.path.join(model_path,f"plots/{L}"), "std", config_labels=configs_label, symlog=True)
+        # Sort config labels for consistent ordering in plots
+        sorting_key = lambda item: item[1]['sorting_key']
+        sorted_model_metrics = dict(sorted(model_metrics.items(), key=sorting_key))
 
-        # write a sorting function to sort by l and d
-        plot_exp4_comparative(model_metrics, model_path, config_title="Configuration", config_labels=configs_label)
-    
+        # For each L, plot grouped configurations with different d values.
+        grouping_key = lambda item: item[1]['sorting_key'][0]
+        grouped_model_metrics = groupby(sorted_model_metrics.items(), key=grouping_key)
+        for L, d_metrics in grouped_model_metrics:
+            plot_all_configs_metrics(dict(d_metrics), model_path,
+                                     file_name=f"L_{L}_grouped_metrics.png",
+                                     loss_y_scale=True)
+            
+        plot_all_configs_best_metrics(model_metrics, model_path,
+                                      file_name="exp4_comparative.png",
+                                      loss_y_scale=True)
+
 def plot_exp5():
     logdir = "logs/experiment5"
     all_metrics = load_experiment(logdir, verbose=False)
     for model_name, model_metrics in all_metrics.items():
         model_path = os.path.join(logdir, model_name)
-        configs_label = []
         for config_name, config_metrics in model_metrics.items():
-            # Extracting batch size from config name formatted as 'modelName_B_BatchSize'
-            parts = config_name.split("_")
-            if len(parts) != 3:
-                print(f"Unexpected config name format: {config_name}")
-                continue
-            batch_size = int(parts[2])
-            configs_label.append(batch_size)
-            
+            batch_size = int(config_name.split("_")[2])
+            config_metrics['sorting_key'] = batch_size
+            config_metrics['label'] = f"B={batch_size}"
             config_path = os.path.join(model_path, config_name)
-            plot_configuration_metrics(config_metrics, config_path, "std")
+            plot_config_loss_accs(config_metrics, config_path,
+                                  file_name="single_config.png",
+                                  loss_y_scale=True)
+
+        # Sort config labels for consistent ordering in plots
+        sorting_key = lambda item: item[1]['sorting_key']
+        sorted_model_metrics = dict(sorted(model_metrics.items(), key=sorting_key))
+
+        plot_all_configs_metrics(sorted_model_metrics, model_path,
+                                 file_name="all_configs.png", loss_y_scale=True)
+        plot_all_configs_best_metrics(sorted_model_metrics, model_path,
+                                      file_name="comparative_best_metrics.png",
+                                      x_label_title="Configuration",
+                                      loss_y_scale=True)
+
+def plot_exp6():
+    logdir = "logs/experiment6"
+    all_metrics = load_experiment(logdir, verbose=False)
+    for model_name, model_metrics in all_metrics.items():
+        model_path = os.path.join(logdir, model_name)
+        for config_name, config_metrics in model_metrics.items():
+            weight_decay = float(config_name.split("_")[2])
+            config_metrics['sorting_key'] = weight_decay
+            config_metrics['label'] = f"W={weight_decay}"
+            config_path = os.path.join(model_path, config_name)
+            plot_config_loss_accs(config_metrics, config_path,
+                                  file_name="single_config.png",
+                                  loss_y_scale=True)
+            
+        # Sort config labels for consistent ordering in plots
+        sorting_key = lambda item: item[1]['sorting_key']
+        sorted_model_metrics = dict(sorted(model_metrics.items(), key=sorting_key))
         
-        plot_all_configurations(model_metrics, model_path, "std", config_labels=configs_label, symlog=True)
-        plot_comparative_best_metrics(model_metrics, model_path, config_title="Configuration (Batch Size)", config_labels=configs_label)
+        plot_all_configs_metrics(sorted_model_metrics, model_path,
+                                 file_name="all_configs.png",
+                                 loss_y_scale=True)
+        plot_all_configs_best_metrics(sorted_model_metrics, model_path,
+                                      file_name="comparative_best_metrics.png",
+                                      x_label_title="Configuration",
+                                      loss_y_scale=True)
 
 if __name__ == "__main__":
+    plot_exp2()
+    plot_exp3()
+    plot_exp4()
     plot_exp5()
+    plot_exp6()

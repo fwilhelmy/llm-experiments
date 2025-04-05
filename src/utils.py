@@ -87,3 +87,27 @@ def count_model_params(model):
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_params_embeddings = sum(p.numel() for p in model.embedding.parameters() if p.requires_grad)
     return n_params - n_params_embeddings
+
+def slice_by_steps(data, alphas):
+    sliced_data_list = []
+    for tmax in data['steps'][-1] * alphas:
+        tmax_index = np.sum(data["steps"] < tmax)
+
+        # Start with a shallow copy of the original data.
+        sliced_data = data.copy()
+        
+        # Slice the "steps" and "epochs" arrays.
+        sliced_data["steps"] = data["steps"][:tmax_index]
+        sliced_data["epochs"] = data["epochs"][:tmax_index]
+        
+        # Slice each metrics.
+        for mode in ["train", "test"]:
+            new_metrics = {}
+            for metric, arr in sliced_data[mode].items():
+                new_metrics[metric] = arr[..., :tmax_index]
+            sliced_data[mode] = new_metrics
+
+        # Append the new, sliced dictionary to the list.
+        sliced_data_list.append(sliced_data)
+    
+    return sliced_data_list

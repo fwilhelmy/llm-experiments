@@ -1,20 +1,15 @@
-#import torch.nn.functional as F
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-
 import os
 import random
 import math
-
 from data import get_arithmetic_dataset
 from lstm import LSTMLM
 from gpt import GPT
 from train import train
 from utils import seed_experiment
-from arguments import Arguments
 from schedulers import DummyScheduler
-from logzy import load_experiment
 
 import torch
 

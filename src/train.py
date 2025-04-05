@@ -4,7 +4,7 @@ from tqdm import tqdm
 import os
 from collections import defaultdict
 from utils import get_loss_and_accuracy
-from logzy import save_checkpoint, save_metrics
+from logzy import save_model, save_metrics
 import numpy as np
 import json
 
@@ -157,8 +157,8 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
 
             # Save model statistics & checkpoint periodically.
             if cur_step == 1 or (cur_step % args.save_step == 0 and cur_step != args.n_steps):
-                file_name = f"{args.exp_name}_state_step={cur_step}_acc={cur_metrics['test']['accuracy']:.5f}_loss={cur_metrics['test']['loss']:.5f}.pth"
-                save_checkpoint(model, optimizer, os.path.join(logdir, file_name), verbose=args.verbose)
+                file_name = f"{args.exp_name}_state_step={cur_step}_acc={cur_metrics['test']['accuracy']:.5f}_loss={cur_metrics['test']['loss']:.5f}"
+                save_model(os.path.join(logdir, file_name), model, optimizer, verbose=args.verbose)
 
             # update tqdm progress bar
             pbar.set_postfix({'step': cur_step, 'loss': f"{loss:.5f}", 'lr': f"{current_lr:.3f}"})
@@ -176,7 +176,7 @@ def train(model, args, logdir, optimizer, scheduler, train_loader, eval_train_lo
     all_metrics["total_time"], all_metrics["avg_step_time"] = total_time, total_time / args.n_steps
 
     # Save final model state after training.
-    save_checkpoint(model, optimizer, f"{logdir}/{args.exp_name}_state.pth", verbose=args.verbose)
+    save_model(f"{logdir}/{args.exp_name}_state", model, optimizer, verbose=args.verbose)
     
     run_evaluation(all_metrics, model, eval_train_loaders, eval_test_loaders, args.device, cur_step, epoch)
     save_metrics(all_metrics, f"{logdir}/{args.exp_name}_metrics.json", verbose=args.verbose)

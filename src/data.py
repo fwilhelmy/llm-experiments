@@ -83,8 +83,8 @@ def get_arithmetic_dataset(
             If operator is "/", then q must be a prime number and the dataset will only contain equations where b is relatively prime to p.
         r_train (float): Train-validation split ratio.
         operation_orders (Union[int, List[int]]): Operation complexity to include.
-            - 2: Binary operation (a op b)
-            - 3: Ternary operation (a op b op c)
+            - [2]: Binary operation (a op b)
+            - [3]: Ternary operation (a op b op c)
             - [2, 3]: Both types
         is_symmetric (bool): If True, ensures a ≤ b for binary operations and/or a ≤ b ≤ c for ternary operations.
         shuffle (bool): If True, shuffles the dataset.

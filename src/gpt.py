@@ -11,6 +11,9 @@ import math
 
 from typing import Tuple, List, Dict, Union
 
+from data import get_arithmetic_dataset
+from plots import visualize_attention_matshow
+
 ########################################################################################
 ########################################################################################
 
@@ -565,24 +568,21 @@ class GPT(nn.Module):
 ########################################################################################
 
 if __name__ == "__main__":
-    
     # Data
-    vocabulary_size=4
-    batch_size, sequence_length = 10, 5
-    sequences = torch.Tensor(batch_size, sequence_length+1).uniform_(1, vocabulary_size).long() # (batch_size, sequence_length+1)
-    mask = torch.ones(batch_size, sequence_length, dtype=torch.long) # (batch_size, sequence_length)
-    for i in range(batch_size) :
-        seq_len = torch.randint(low=2, high=sequence_length, size=(1,))[0]
-        mask[i,seq_len:] = 0
-        sequences[i,seq_len:] = 0
-    # next sentence prediction
-    inputs = sequences[:,:-1] # (batch_size, sequence_length)
-    targets = sequences[:,1:] # (batch_size, sequence_length)
+    p = 31
+    operator = "+"
+    operation_orders = [2]
+
+    (dataset, _), tokenizer, MAX_LENGTH, padding_index = get_arithmetic_dataset(p, p, operator, 1.0, operation_orders, is_symmetric=False, shuffle=True, seed=42)
+    inputs = dataset[:1]
 
     # Model 
-    embedding_size=6
-    num_heads=2
-    num_layers=4
+    vocabulary_size=len(tokenizer)
+    batch_size, sequence_length = 2, MAX_LENGTH
+    embedding_size=8
+    num_heads=4
+    num_layers=2
+    padding_index=padding_index
     assert embedding_size % num_heads == 0
 
     model = GPT(
@@ -594,11 +594,13 @@ if __name__ == "__main__":
         multiplier = 4,
         dropout = 0.0,
         non_linearity = "gelu",
-        padding_index = None,
+        padding_index = padding_index,
         bias_attention=True,
         bias_classifier=False,
         share_embeddings=False
     )
 
-    logits, (hidden_states, attentions) = model(inputs)
-    print(logits.shape, hidden_states.shape, attentions.shape)   
+    logits, (hidden_states, attentions) = model(inputs[0])
+    print(logits.shape, hidden_states.shape, attentions.shape)
+
+    visualize_attention_matshow(model, inputs, tokenizer, "plots", "visualize_attention_matshow")

@@ -2,25 +2,24 @@ import os
 import json
 import numpy as np
 import torch
+from torch import nn
 
 MODES = ['train', 'test']
 
-def save_checkpoint(model, optimizer, filepath, verbose=True):
-    """Save model and optimizer states to a file."""
-    checkpoint = {
-        'model_state': model.state_dict(),
-        'optimizer_state': optimizer.state_dict()
-    }
-    torch.save(checkpoint, filepath)
-    if verbose: print(f"Checkpoint saved to {filepath}")
+def save_model(logdir, file_name, model, verbose=True) -> None:
+    """ Save the model's state dictionary """
+    os.makedirs(logdir, exist_ok=True)
+    file_path = os.path.join(logdir, f"{file_name}.pth")
+    torch.save(model, file_path)        
+    if verbose: print(f"Model saved to {logdir}")
 
-def load_checkpoint(filepath, model, optimizer, map_location='cpu', verbose=True):
-    """Load model and optimizer states from a file and update them."""
-    checkpoint = torch.load(filepath, map_location=map_location)
-    model.load_state_dict(checkpoint['model_state'])
-    optimizer.load_state_dict(checkpoint['optimizer_state'])
-    if verbose: print(f"Checkpoint loaded from {filepath}")
-    return model, optimizer
+def load_model(logdir, model_name, map_location=None, verbose=True) -> nn.Module:
+    """ Load the model's state dictionary """
+    load_path = os.path.join(logdir, f"{model_name}.pth")
+    # If map_location is None, will load onto the devices originally saved from. 
+    model = torch.load(load_path, map_location=map_location, weights_only=False)
+    if verbose: print(f"Model loaded from {logdir}")
+    return model
 
 def save_metrics(metrics, filename, verbose=True):
     with open(filename, 'w') as f: json.dump(metrics, f, indent=4)

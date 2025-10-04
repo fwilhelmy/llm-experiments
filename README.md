@@ -58,4 +58,4 @@ Each entry in `run_paths` points to a directory populated by `src/train.py` with
 Sanitized homework reports are stored in `reports/practical/` and `reports/theory/` alongside both the original Felix Wilhelmy submissions (`FelixWilhelmy.pdf`) and their anonymized `assignment.pdf` counterparts.  LoRA-specific analyses remain at the repository root (`LoRA.pdf`, `QLoRA.pdf`).  After running experiments you will also find generated checkpoints and metric JSON files in the `logs/` directory created by the training helpers above.
 
 ## Credits
-Felix Wilhelmy thanks Professor Aaron Courville for his guidance and the lab assistant who provided the initial project code that was heavily modified for this repository.
+Felix Wilhelmy thanks Professor Aaron Courville for his guidance and lab assistants Pascal Tikeng and Alireza Dizaji, who provided the initial project code that was heavily modified for this repository.

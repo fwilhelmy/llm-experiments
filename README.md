@@ -1,109 +1,61 @@
-## Clone the repository
+# LLM Experiments
+
+## Project overview
+This repository contains the cleaned-up training code that Felix Wilhelmy used to study how lightweight language models learn arithmetic operations under different curricula.  The project trains either LSTM or GPT sequence models on synthetic datasets of arithmetic expressions and tracks accuracy, loss, and parameter norms for each operation order.  Sanitized reports documenting the experiments are available in the repository root as `FelixWilhelmy_IFT6135_HW2_Practical.pdf`, `FelixWilhelmy_IFT6135_HW2_Theory.pdf`, `IFT6135___HW__2_practical.pdf`, `IFT6135___HW__2_theory.pdf`, `LoRA.pdf`, and `QLoRA.pdf`.
+
+## Getting started
+
+### Clone the repository
 ```bash
-git clone https://github.com/Tikquuss/IFT6135_W25_A2_release
-cd IFT6135_W25_A2_release
+git clone https://github.com/mila-iqia/llm-experiments.git
+cd llm-experiments
+```
+
+### Set up a virtual environment and install dependencies
+The training scripts in `src/` depend on PyTorch, NumPy, tqdm, and Gradescope utilities.  Install them with:
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-## Train a model
-You can use (see [run_exp.py](run_exp.py) for more parameters)
-```bash
-python run_exp.py --p 31 --operator + --r_train 0.5 --model lstm --optimizer adamw
-```
-Or (see the class `Arguments` from [train.py](train.py) for more parameters)
+## Training workflows
+
+### Train a single model run
+Use the high-level helper in `src/main.py` to configure and launch one training run:
 ```python
-import torch
-from train import Arguments, train, train_m_models
-from plotter import plot_loss_accs
+from src.arguments import Arguments
+from src.main import train_model
 
-args=Arguments()
+args = Arguments()
+args.model = "gpt"          # or "lstm"
+args.operator = "+"         # choose among ["+", "-", "*", "/"]
+args.operation_orders = [2]  # operation depths to include
+args.exp_name = "demo"
+args.log_dir = "logs"
 
-# Data
-args.p=31
-args.operator = "+" # ["+", "-", "*", "/"]
-args.r_train = .5
-args.operation_orders = 2 # 2, 3 or [2, 3]
-args.train_batch_size = 512
-args.eval_batch_size = 2**12
-args.num_workers = 0
-
-# Model
-args.model = 'lstm'  # [lstm, gpt]
-args.num_heads = 4
-args.num_layers = 2
-args.embedding_size = 2**7
-args.hidden_size = 2**7
-args.dropout = 0.0
-args.share_embeddings = False
-args.bias_classifier = True
-
-# Optimization
-args.optimizer = 'adamw'  # [sgd, momentum, adam, adamw]
-args.lr = 1e-3
-args.weight_decay = 1e-0
-
-# Training
-args.n_steps = 10**4 + 1
-args.eval_first = 10**2
-args.eval_period = 10**2
-args.print_step= 10**2
-args.save_model_step = 10**3
-args.save_statistic_step = 10**3
-
-# Experiment & Miscellaneous
-args.device = "cuda" if torch.cuda.is_available() else "cpu"
-args.exp_id = 0
-args.exp_name = "test"
-args.log_dir = '../logs'
-args.seed = 42 
-args.verbose = True
-
-## Train a single model (one seed)
-all_metrics, checkpoint_path = train(args)
-## all_metrics contains the training/test loss/accuracies, training steps, etc
-plot_loss_accs(all_metrics, multiple_runs=False, log_x=False, log_y=False, fileName=args.exp_name, filePath=None, show=True)
-
-## Train multiple models (multiple seeds)
-all_models_per_trials, all_metrics, all_checkpoint_paths = train_m_models(args, M=2, seeds=[0, 42])
-plot_loss_accs(all_metrics, multiple_runs=True, log_x=False, log_y=False, fileName=args.exp_name, filePath=None, show=True)
+metrics, checkpoint_dir = train_model(args)
+print("Metrics keys:", metrics.keys())
+print("Checkpoints saved under:", checkpoint_dir)
 ```
+This call constructs the datasets, initializes the selected model, and runs the optimizer loop defined in `src/train.py`, persisting checkpoints and metrics to `logs/<exp_name>/<exp_id>/`.
 
-## Load checkpoints
+### Launch multiple seeds
+For reproducibility studies, sweep over several random seeds with `train_models`:
 ```python
-from checkpointing import get_all_checkpoints, get_all_checkpoints_per_trials
+from src.arguments import Arguments
+from src.main import train_models
 
-args.exp_id = 0
-args.exp_name = "test"
-args.log_dir = '../logs'
-
-## For a single run
-checkpoint_path = os.path.join(args.log_dir, str(args.exp_id))
-all_models, all_metrics = get_all_checkpoints(checkpoint_path, args.exp_name, just_files=True)
-
-## For a multiple runs
-all_checkpoint_paths = []
-all_models_per_trials, all_metrics = get_all_checkpoints_per_trials(all_checkpoint_paths, args.exp_name, just_files=True)
+args = Arguments()
+args.exp_name = "seed_sweep"
+run_paths = train_models(args, seeds=[0, 13, 42])
+print("Saved runs:", run_paths)
 ```
+Each entry in `run_paths` points to a directory populated by `src/train.py` with model snapshots and JSON metrics for later analysis.
 
-## Plot informations
-```python
-from plotter import plot_loss_accs
+## Reports and artifacts
+The sanitized write-ups and ablation notes live alongside the source tree.  After running experiments you will also find generated checkpoints and metric JSON files in the `logs/` directory created by the training helpers above.
 
-## For a single run
-plot_loss_accs(all_metrics, multiple_runs=False, log_x=False, log_y=False, fileName=args.exp_name, filePath=None, show=True)
-
-## For a multiple run
-plot_loss_accs(all_metrics, multiple_runs=True, log_x=False, log_y=False, fileName=args.exp_name, filePath=None, show=True)
-```
-
-## Calculate best performances & the steps at which they were achieved (for the first time)
-
-```python
-from checkpointing import get_extrema_performance_steps, get_extrema_performance_steps_per_trials
-
-## For a single run
-extrema_performances = get_extrema_performance_steps(all_metrics)
-
-## For a multiple run
-extrema_performances = get_extrema_performance_steps_per_trials(all_metrics)
-```
+## Credits
+Felix Wilhelmy thanks Professor Aaron Courville for his guidance and the lab assistant who provided the initial project code that was heavily modified for this repository.

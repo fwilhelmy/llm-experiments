@@ -1,7 +1,7 @@
 # LLM Experiments
 
 ## Project overview
-This repository contains the cleaned-up training code that Felix Wilhelmy used to study how lightweight language models learn arithmetic operations under different curricula.  The project trains either LSTM or GPT sequence models on synthetic datasets of arithmetic expressions and tracks accuracy, loss, and parameter norms for each operation order.  Sanitized reports documenting the experiments are available in the repository root as `FelixWilhelmy_IFT6135_HW2_Practical.pdf`, `FelixWilhelmy_IFT6135_HW2_Theory.pdf`, `IFT6135___HW__2_practical.pdf`, `IFT6135___HW__2_theory.pdf`, `LoRA.pdf`, and `QLoRA.pdf`.
+This repository contains the cleaned-up training code that Felix Wilhelmy used to study how lightweight language models learn arithmetic operations under different curricula.  The project trains either LSTM or GPT sequence models on synthetic datasets of arithmetic expressions and tracks accuracy, loss, and parameter norms for each operation order.  Sanitized reports documenting the experiments are available under `reports/practical/` (`FelixWilhelmy.pdf`, `assignment.pdf`) and `reports/theory/` (`FelixWilhelmy.pdf`, `assignment.pdf`), with additional LoRA ablation notes in the root-level `LoRA.pdf` and `QLoRA.pdf` files.
 
 ## Getting started
 
@@ -55,7 +55,7 @@ print("Saved runs:", run_paths)
 Each entry in `run_paths` points to a directory populated by `src/train.py` with model snapshots and JSON metrics for later analysis.
 
 ## Reports and artifacts
-The sanitized write-ups and ablation notes live alongside the source tree.  After running experiments you will also find generated checkpoints and metric JSON files in the `logs/` directory created by the training helpers above.
+Sanitized homework reports are stored in `reports/practical/` and `reports/theory/` alongside both the original Felix Wilhelmy submissions (`FelixWilhelmy.pdf`) and their anonymized `assignment.pdf` counterparts.  LoRA-specific analyses remain at the repository root (`LoRA.pdf`, `QLoRA.pdf`).  After running experiments you will also find generated checkpoints and metric JSON files in the `logs/` directory created by the training helpers above.
 
 ## Credits
 Felix Wilhelmy thanks Professor Aaron Courville for his guidance and the lab assistant who provided the initial project code that was heavily modified for this repository.
